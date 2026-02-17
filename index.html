@@ -5,78 +5,75 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wire Request Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- MSAL Library - Alternative CDN (more reliable) -->
-    <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.26.0/dist/msal-browser.umd.js"></script>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; padding: 0; }
     </style>
 </head>
 <body>
-    <div id="app">
-        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #1f2937 0%, #111827 100%);">
-            <div style="text-align: center; color: white;">
-                <div style="width: 50px; height: 50px; border: 4px solid #3b82f6; border-top-color: white; border-radius: 50%; margin: 0 auto 20px; animation: spin 1s linear infinite;"></div>
-                <p style="font-size: 18px; font-weight: 500;">Initializing Wire Request Portal...</p>
-                <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">Connecting to Azure AD...</p>
-            </div>
-        </div>
-        <style>
-            @keyframes spin {
-                to { transform: rotate(360deg); }
-            }
-        </style>
-    </div>
+    <div id="app"></div>
 
     <script>
-        console.log('=== Wire Request Portal - Azure AD Edition ===');
-        console.log('Script loaded, waiting for MSAL...');
-        console.log('Current URL:', window.location.origin);
-        
+        console.log('=== Wire Request Portal - Azure AD OAuth2 ===');
+
         // CONFIGURATION
-        const msalConfig = {
-            auth: {
-                clientId: "8a44d772-bd32-49a0-a570-7d1f4749a308",
-                authority: "https://login.microsoftonline.com/common",
-                redirectUri: window.location.origin + "/",
-                postLogoutRedirectUri: window.location.origin + "/"
-            },
-            cache: {
-                cacheLocation: "localStorage",
-                storeAuthStateInCookie: false
-            },
-            system: {
-                allowNativeBroker: false
+        const AZURE_CLIENT_ID = "8a44d772-bd32-49a0-a570-7d1f4749a308";
+        const REDIRECT_URI = window.location.origin + "/";
+        const AZURE_TENANT = "common";
+
+        // Parse token from URL
+        const parseToken = () => {
+            const hash = window.location.hash;
+            if (!hash) return null;
+
+            const params = new URLSearchParams(hash.substring(1));
+            const idToken = params.get('id_token');
+            const accessToken = params.get('access_token');
+            
+            if (!idToken) return null;
+
+            // Decode JWT (simple base64 decode)
+            try {
+                const parts = idToken.split('.');
+                if (parts.length !== 3) return null;
+
+                const decoded = JSON.parse(atob(parts[1]));
+                return {
+                    name: decoded.name,
+                    email: decoded.preferred_username || decoded.email,
+                    token: idToken
+                };
+            } catch (error) {
+                console.error('Token parse error:', error);
+                return null;
             }
         };
 
-        const loginRequest = {
-            scopes: ["User.Read", "profile", "openid", "email"]
+        // LOGOUT - clear URL and storage
+        const handleLogout = () => {
+            // Clear hash
+            window.location.hash = '';
+            
+            // Clear localStorage
+            localStorage.removeItem('user_data');
+            
+            // Redirect to logout
+            window.location.href = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
         };
 
-        let msalInstance = null;
-        let appInitialized = false;
+        // LOGIN - redirect to Azure AD
+        const handleLogin = () => {
+            const params = new URLSearchParams({
+                client_id: AZURE_CLIENT_ID,
+                response_type: 'id_token',
+                redirect_uri: REDIRECT_URI,
+                scope: 'openid profile email',
+                response_mode: 'fragment',
+                nonce: Math.random().toString(36).substring(7)
+            });
 
-        // WAIT FOR MSAL LIBRARY TO LOAD
-        const waitForMSAL = new Promise((resolve, reject) => {
-            let attempts = 0;
-            const maxAttempts = 30;
-
-            const checkMSAL = () => {
-                if (typeof msal !== 'undefined' && (msal.PublicClientApplication || msal.default?.PublicClientApplication)) {
-                    console.log('✓ MSAL Library loaded');
-                    resolve();
-                } else if (attempts < maxAttempts) {
-                    attempts++;
-                    setTimeout(checkMSAL, 500);
-                } else {
-                    console.error('MSAL library failed to load after', attempts * 0.5, 'seconds');
-                    reject(new Error('MSAL library did not load. Check your internet connection.'));
-                }
-            };
-
-            checkMSAL();
-        });
+            window.location.href = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/authorize?${params.toString()}`;
+        };
 
         // APP STATE
         const app = {
@@ -106,123 +103,7 @@
             'welhage@ritzbanc.com': 'finance',
         };
 
-        // INITIALIZE MSAL
-        const initializeMSAL = async () => {
-            try {
-                console.log('Initializing MSAL with Azure AD...');
-                
-                // Handle different MSAL library structures
-                const PublicClientApplication = msal.PublicClientApplication || msal.default?.PublicClientApplication;
-                
-                if (!PublicClientApplication) {
-                    throw new Error('PublicClientApplication not found in MSAL library');
-                }
-                
-                msalInstance = new PublicClientApplication(msalConfig);
-                await msalInstance.initialize();
-                
-                console.log('✓ MSAL initialized');
-
-                const accounts = msalInstance.getAllAccounts();
-                if (accounts.length > 0) {
-                    const account = accounts[0];
-                    app.currentUser = account.name;
-                    app.userEmail = account.username;
-                    app.userRole = roleMapping[app.userEmail?.toLowerCase()] || 'requester';
-                    app.formData.requestor = app.currentUser;
-                    app.formData.email = app.userEmail;
-                    console.log('User session found:', account.username);
-                }
-
-                appInitialized = true;
-                render();
-                
-            } catch (error) {
-                console.error('MSAL init error:', error);
-                showError('Failed to initialize Azure AD authentication', error);
-            }
-        };
-
-        const showError = (title, error) => {
-            console.error('DETAILED ERROR:', {
-                title,
-                message: error?.message,
-                stack: error?.stack,
-                msalLoaded: typeof msal !== 'undefined',
-                msalType: typeof msal,
-                navigatorOnline: navigator.onLine
-            });
-            
-            document.getElementById('app').innerHTML = `
-                <div style="min-height: 100vh; background: #1f2937; display: flex; align-items: center; justify-content: center; padding: 20px;">
-                    <div style="background: white; padding: 40px; border-radius: 12px; max-width: 500px;">
-                        <h2 style="color: #dc2626; margin: 0 0 15px 0; font-size: 20px; font-weight: bold;">⚠️ ${title}</h2>
-                        <div style="background: #fee2e2; border: 1px solid #fca5a5; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                            <p style="color: #991b1b; font-size: 12px; margin: 0; font-family: monospace; word-break: break-all;">${error?.message || error}</p>
-                        </div>
-                        <p style="color: #666; font-size: 13px; margin: 0 0 15px 0;">
-                            <strong>Troubleshooting:</strong>
-                        </p>
-                        <ul style="color: #666; font-size: 13px; margin: 0 0 20px 0; padding-left: 20px;">
-                            <li>Check your internet connection</li>
-                            <li>Try hard refresh: Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac)</li>
-                            <li>Try a different browser</li>
-                            <li>Check Azure AD Redirect URI matches your Vercel URL</li>
-                        </ul>
-                        <button onclick="location.reload()" style="width: 100%; background: #3b82f6; color: white; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">
-                            Try Again
-                        </button>
-                    </div>
-                </div>
-            `;
-        };
-
-        // LOGIN
-        const handleLogin = async () => {
-            if (!msalInstance) {
-                alert('System not ready. Please refresh.');
-                return;
-            }
-
-            try {
-                const response = await msalInstance.loginPopup(loginRequest);
-                
-                if (response && response.account) {
-                    app.currentUser = response.account.name;
-                    app.userEmail = response.account.username;
-                    app.userRole = roleMapping[app.userEmail?.toLowerCase()] || 'requester';
-                    app.formData.requestor = app.currentUser;
-                    app.formData.email = app.userEmail;
-                    
-                    console.log('✓ Login successful:', app.userEmail, 'Role:', app.userRole);
-                    render();
-                }
-            } catch (error) {
-                if (error.errorCode !== 'user_cancelled') {
-                    console.error('Login error:', error);
-                    alert('Login failed: ' + error.message);
-                }
-            }
-        };
-
-        // LOGOUT
-        const handleLogout = async () => {
-            try {
-                if (msalInstance) {
-                    await msalInstance.logout();
-                }
-                app.currentUser = null;
-                app.userEmail = null;
-                app.userRole = null;
-                app.showForm = false;
-                app.formData = { requestor: '', email: '', property: '', amount: '', purpose: '', wireDate: '', urgency: 'Standard (3-5 days)' };
-                render();
-            } catch (error) {
-                console.error('Logout error:', error);
-            }
-        };
-
-        // FORM SUBMIT
+        // FORM FUNCTIONS
         const handleSubmit = (e) => {
             e.preventDefault();
             if (!app.formData.property || !app.formData.amount || !app.formData.purpose) {
@@ -291,7 +172,7 @@
                     
                     <div style="padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; text-align: left; border-radius: 6px;">
                         <p style="color: #1e40af; font-weight: bold; margin: 0 0 8px 0;">✓ Azure AD Connected</p>
-                        <p style="color: #1e3a8a; font-size: 13px; margin: 0;">Sign in with your Ritz Banc email</p>
+                        <p style="color: #1e3a8a; font-size: 13px; margin: 0;">Sign in with your Ritz Banc email (afaircloth@ritzbanc.com or welhage@ritzbanc.com)</p>
                     </div>
                 </div>
             </div>
@@ -428,15 +309,12 @@
         };
 
         const render = () => {
-            if (!appInitialized) return;
-            const appDiv = document.getElementById('app');
-            
             if (!app.currentUser) {
-                appDiv.innerHTML = renderLogin();
+                document.getElementById('app').innerHTML = renderLogin();
             } else if (app.userRole === 'requester') {
-                appDiv.innerHTML = renderRequester();
+                document.getElementById('app').innerHTML = renderRequester();
             } else {
-                appDiv.innerHTML = renderApprover();
+                document.getElementById('app').innerHTML = renderApprover();
             }
         };
 
@@ -447,8 +325,24 @@
         window.handleApprove = handleApprove;
         window.handleReject = handleReject;
 
-        // START
-        waitForMSAL.then(() => initializeMSAL()).catch(error => showError('Azure AD Initialization Failed', error));
+        // INITIALIZE
+        const userToken = parseToken();
+        if (userToken) {
+            app.currentUser = userToken.name;
+            app.userEmail = userToken.email;
+            app.userRole = roleMapping[app.userEmail?.toLowerCase()] || 'requester';
+            app.formData.requestor = app.currentUser;
+            app.formData.email = app.userEmail;
+            
+            console.log('✓ User logged in:', app.userEmail, 'Role:', app.userRole);
+            
+            // Clear hash from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        } else {
+            console.log('No user logged in');
+        }
+
+        render();
     </script>
 </body>
 </html>
