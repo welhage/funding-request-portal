@@ -44,8 +44,8 @@
             auth: {
                 clientId: "8a44d772-bd32-49a0-a570-7d1f4749a308",
                 authority: "https://login.microsoftonline.com/common",
-                redirectUri: window.location.origin,
-                postLogoutRedirectUri: window.location.origin
+                redirectUri: window.location.origin + "/",
+                postLogoutRedirectUri: window.location.origin + "/"
             },
             cache: {
                 cacheLocation: "localStorage",
@@ -190,7 +190,7 @@
         // ============================================
         const handleLogin = async () => {
             if (!msalInstance) {
-                alert('Authentication not configured. Please check the setup.');
+                alert('MSAL not initialized. This usually means:\n\n1. Browser cache issue - try hard refresh (Ctrl+Shift+R)\n2. Azure AD redirect URI mismatch\n3. Network connectivity issue\n\nTry clearing cache and refreshing.');
                 return;
             }
 
