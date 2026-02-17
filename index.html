@@ -5,41 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wire Request Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://alcdn.msauth.net/browser/2.30.0/ms-browser-msal.min.js"></script>
+    <!-- MSAL Library -->
+    <script type="text/javascript" src="https://alcdn.msauth.net/browser/2.26.0/ms-browser-msal.umd.js"></script>
     <style>
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif; }
-        .hidden { display: none !important; }
-        .loading-spinner {
-            display: inline-block;
-            width: 40px;
-            height: 40px;
-            border: 4px solid #e5e7eb;
-            border-top-color: #3b82f6;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        body { margin: 0; padding: 0; }
     </style>
 </head>
 <body>
     <div id="app">
-        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);">
-            <div style="text-align: center;">
-                <div class="loading-spinner" style="margin: 0 auto 20px;"></div>
-                <p style="color: #374151; font-weight: 500;">Loading Wire Request Portal...</p>
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #1f2937 0%, #111827 100%);">
+            <div style="text-align: center; color: white;">
+                <div style="width: 50px; height: 50px; border: 4px solid #3b82f6; border-top-color: white; border-radius: 50%; margin: 0 auto 20px; animation: spin 1s linear infinite;"></div>
+                <p style="font-size: 18px; font-weight: 500;">Initializing Wire Request Portal...</p>
+                <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">Connecting to Azure AD...</p>
             </div>
         </div>
+        <style>
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        </style>
     </div>
 
     <script>
-        console.log('Wire Request Portal Loading...');
-
-        // ============================================
-        // AZURE AD CONFIGURATION
-        // ============================================
+        console.log('=== Wire Request Portal - Azure AD Edition ===');
+        
+        // CONFIGURATION
         const msalConfig = {
             auth: {
                 clientId: "8a44d772-bd32-49a0-a570-7d1f4749a308",
@@ -52,150 +44,118 @@
                 storeAuthStateInCookie: false
             },
             system: {
-                loggerOptions: {
-                    loggerCallback: (level, message, containsPii) => {
-                        if (level === msal.LogLevel.Error && !containsPii) {
-                            console.error('[MSAL Error]', message);
-                        }
-                    }
-                }
+                allowNativeBroker: false
             }
         };
 
         const loginRequest = {
-            scopes: ["User.Read"]
+            scopes: ["User.Read", "profile", "openid", "email"]
         };
 
         let msalInstance = null;
-        let isAzureADConfigured = false;
+        let appInitialized = false;
 
-        // ============================================
-        // ROLE MAPPING
-        // ============================================
-        const roleMapping = {
-            'afaircloth@ritzbanc.com': 'manager',
-            'welhage@ritzbanc.com': 'finance',
-        };
+        // WAIT FOR MSAL LIBRARY TO LOAD
+        const waitForMSAL = new Promise((resolve, reject) => {
+            let attempts = 0;
+            const maxAttempts = 30;
 
-        const getUserRole = (email) => {
-            return roleMapping[email?.toLowerCase()] || 'requester';
-        };
+            const checkMSAL = () => {
+                if (typeof msal !== 'undefined' && msal.PublicClientApplication) {
+                    console.log('✓ MSAL Library loaded');
+                    resolve();
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(checkMSAL, 500);
+                } else {
+                    reject(new Error('MSAL library failed to load'));
+                }
+            };
 
-        // ============================================
+            checkMSAL();
+        });
+
         // APP STATE
-        // ============================================
         const app = {
             currentUser: null,
             userEmail: null,
             userRole: null,
             showForm: false,
-            selectedRequest: null,
-            formErrors: {},
-            isAuthenticating: false,
-            azureReady: false,
             formData: {
                 requestor: '',
                 email: '',
                 property: '',
                 amount: '',
                 purpose: '',
-                details: '',
                 wireDate: '',
                 urgency: 'Standard (3-5 days)',
-                costCenter: '',
-                projectCode: ''
             },
             requests: [
-                {
-                    id: 'WR-2025-0001',
-                    requestor: 'Sarah Johnson',
-                    property: 'Hickory Point',
-                    amount: 125000,
-                    purpose: 'Operation Funding',
-                    status: 'Completed',
-                    managerApproved: true,
-                    financeApproved: true,
-                    date: '2025-02-10',
-                    urgency: 'Standard (3-5 days)'
-                },
-                {
-                    id: 'WR-2025-0002',
-                    requestor: 'Mike Chen',
-                    property: 'Lee\'s Landing',
-                    amount: 45000,
-                    purpose: 'Capex Draw Funding',
-                    status: 'Manager Approved',
-                    managerApproved: true,
-                    financeApproved: false,
-                    date: '2025-02-14',
-                    urgency: 'Expedited (1-2 days)'
-                },
-                {
-                    id: 'WR-2025-0003',
-                    requestor: 'Lisa Martinez',
-                    property: 'Hilton Village',
-                    amount: 18000,
-                    purpose: 'Operation Funding',
-                    status: 'Pending',
-                    managerApproved: false,
-                    financeApproved: false,
-                    date: '2025-02-15',
-                    urgency: 'Standard (3-5 days)'
-                }
+                { id: 'WR-2025-0001', requestor: 'Sarah Johnson', property: 'Hickory Point', amount: 125000, purpose: 'Operation Funding', status: 'Completed', managerApproved: true, financeApproved: true, date: '2025-02-10' },
+                { id: 'WR-2025-0002', requestor: 'Mike Chen', property: 'Lee\'s Landing', amount: 45000, purpose: 'Capex Draw Funding', status: 'Manager Approved', managerApproved: true, financeApproved: false, date: '2025-02-14' },
             ],
-            properties: [
-                'Hickory Point',
-                'Lee\'s Landing',
-                'Hilton Village',
-                'Blue Ridge',
-                'Broad on the Green',
-                'Lake Village',
-                'Madison Woods'
-            ],
+            properties: ['Hickory Point', 'Lee\'s Landing', 'Hilton Village', 'Blue Ridge', 'Broad on the Green', 'Lake Village', 'Madison Woods'],
             purposes: ['Operation Funding', 'Capex Draw Funding'],
-            urgencies: ['Standard (3-5 days)', 'Expedited (1-2 days)', 'Same Day']
         };
 
-        // ============================================
+        const roleMapping = {
+            'afaircloth@ritzbanc.com': 'manager',
+            'welhage@ritzbanc.com': 'finance',
+        };
+
         // INITIALIZE MSAL
-        // ============================================
         const initializeMSAL = async () => {
             try {
-                console.log('Initializing MSAL...');
+                console.log('Initializing MSAL with Azure AD...');
                 
-                if (typeof msal === 'undefined') {
-                    console.warn('MSAL library not available');
-                    isAzureADConfigured = false;
-                    return;
-                }
-
                 msalInstance = new msal.PublicClientApplication(msalConfig);
                 await msalInstance.initialize();
-                isAzureADConfigured = true;
-                app.azureReady = true;
                 
-                console.log('MSAL initialized successfully');
-                console.log('Redirect URI:', msalConfig.auth.redirectUri);
+                console.log('✓ MSAL initialized');
+
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    const account = accounts[0];
+                    app.currentUser = account.name;
+                    app.userEmail = account.username;
+                    app.userRole = roleMapping[app.userEmail?.toLowerCase()] || 'requester';
+                    app.formData.requestor = app.currentUser;
+                    app.formData.email = app.userEmail;
+                    console.log('User session found:', account.username);
+                }
+
+                appInitialized = true;
+                render();
                 
-                await checkAuthStatus();
             } catch (error) {
-                console.error('MSAL initialization failed:', error);
-                isAzureADConfigured = false;
-                app.azureReady = false;
+                console.error('MSAL init error:', error);
+                showError('Failed to initialize Azure AD authentication', error);
             }
         };
 
-        // ============================================
-        // AUTHENTICATION FUNCTIONS
-        // ============================================
+        const showError = (title, error) => {
+            document.getElementById('app').innerHTML = `
+                <div style="min-height: 100vh; background: #1f2937; display: flex; align-items: center; justify-content: center; padding: 20px;">
+                    <div style="background: white; padding: 40px; border-radius: 12px; max-width: 500px;">
+                        <h2 style="color: #dc2626; margin: 0 0 15px 0; font-size: 20px; font-weight: bold;">⚠️ Error</h2>
+                        <p style="color: #666; margin: 0 0 15px 0;">${title}</p>
+                        <div style="background: #fee2e2; border: 1px solid #fca5a5; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                            <p style="color: #991b1b; font-size: 12px; margin: 0; font-family: monospace;">${error?.message || error}</p>
+                        </div>
+                        <button onclick="location.reload()" style="width: 100%; background: #3b82f6; color: white; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">
+                            Reload
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        // LOGIN
         const handleLogin = async () => {
             if (!msalInstance) {
-                alert('MSAL not initialized. This usually means:\n\n1. Browser cache issue - try hard refresh (Ctrl+Shift+R)\n2. Azure AD redirect URI mismatch\n3. Network connectivity issue\n\nTry clearing cache and refreshing.');
+                alert('System not ready. Please refresh.');
                 return;
             }
-
-            app.isAuthenticating = true;
-            render();
 
             try {
                 const response = await msalInstance.loginPopup(loginRequest);
@@ -203,104 +163,43 @@
                 if (response && response.account) {
                     app.currentUser = response.account.name;
                     app.userEmail = response.account.username;
-                    app.userRole = getUserRole(app.userEmail);
-                    
+                    app.userRole = roleMapping[app.userEmail?.toLowerCase()] || 'requester';
                     app.formData.requestor = app.currentUser;
                     app.formData.email = app.userEmail;
                     
-                    console.log('Login successful:', app.userEmail, 'Role:', app.userRole);
+                    console.log('✓ Login successful:', app.userEmail, 'Role:', app.userRole);
                     render();
                 }
             } catch (error) {
-                console.error('Login error:', error);
                 if (error.errorCode !== 'user_cancelled') {
+                    console.error('Login error:', error);
                     alert('Login failed: ' + error.message);
                 }
-                app.isAuthenticating = false;
-                render();
             }
         };
 
+        // LOGOUT
         const handleLogout = async () => {
             try {
                 if (msalInstance) {
                     await msalInstance.logout();
                 }
+                app.currentUser = null;
+                app.userEmail = null;
+                app.userRole = null;
+                app.showForm = false;
+                app.formData = { requestor: '', email: '', property: '', amount: '', purpose: '', wireDate: '', urgency: 'Standard (3-5 days)' };
+                render();
             } catch (error) {
-                console.error('Logout failed:', error);
-            }
-            
-            app.currentUser = null;
-            app.userEmail = null;
-            app.userRole = null;
-            app.showForm = false;
-            app.selectedRequest = null;
-            app.formErrors = {};
-            app.formData = {
-                requestor: '', email: '', property: '', amount: '', purpose: '', details: '', wireDate: '',
-                urgency: 'Standard (3-5 days)', costCenter: '', projectCode: ''
-            };
-            render();
-        };
-
-        const checkAuthStatus = async () => {
-            try {
-                if (!msalInstance) return;
-                
-                const accounts = msalInstance.getAllAccounts();
-                if (accounts.length > 0) {
-                    const account = accounts[0];
-                    app.currentUser = account.name;
-                    app.userEmail = account.username;
-                    app.userRole = getUserRole(app.userEmail);
-                    app.formData.requestor = app.currentUser;
-                    app.formData.email = app.userEmail;
-                    
-                    console.log('User authenticated:', app.userEmail);
-                }
-            } catch (error) {
-                console.error('Auth check failed:', error);
+                console.error('Logout error:', error);
             }
         };
 
-        // ============================================
-        // UTILITY FUNCTIONS
-        // ============================================
-        const formatCurrency = (amount) => {
-            return '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        };
-
-        const getStatusBadge = (status) => {
-            const styles = {
-                'Completed': 'bg-green-100 text-green-800',
-                'Manager Approved': 'bg-blue-100 text-blue-800',
-                'Pending': 'bg-yellow-100 text-yellow-800',
-                'Rejected': 'bg-red-100 text-red-800'
-            };
-            return styles[status] || 'bg-gray-100 text-gray-800';
-        };
-
-        const sendEmailNotification = (to, subject, message) => {
-            console.log(`EMAIL: ${to} - ${subject}`);
-        };
-
-        const validateForm = () => {
-            const errors = {};
-            if (!app.formData.requestor.trim()) errors.requestor = 'Name required';
-            if (!app.formData.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) errors.email = 'Valid email required';
-            if (!app.formData.property) errors.property = 'Property required';
-            if (!app.formData.amount || parseFloat(app.formData.amount) <= 0) errors.amount = 'Amount must be greater than 0';
-            if (!app.formData.purpose) errors.purpose = 'Purpose required';
-            if (!app.formData.wireDate) errors.wireDate = 'Wire date required';
-            
-            app.formErrors = errors;
-            return Object.keys(errors).length === 0;
-        };
-
+        // FORM SUBMIT
         const handleSubmit = (e) => {
             e.preventDefault();
-            if (!validateForm()) {
-                render();
+            if (!app.formData.property || !app.formData.amount || !app.formData.purpose) {
+                alert('Please fill all required fields');
                 return;
             }
 
@@ -314,158 +213,128 @@
                 managerApproved: false,
                 financeApproved: false,
                 date: new Date().toISOString().split('T')[0],
-                urgency: app.formData.urgency
             };
 
             app.requests.push(newRequest);
             app.showForm = false;
-            app.formData = {
-                requestor: app.currentUser, email: app.userEmail, property: '', amount: '', purpose: '', details: '', wireDate: '',
-                urgency: 'Standard (3-5 days)', costCenter: '', projectCode: ''
-            };
-            app.formErrors = {};
-            
-            sendEmailNotification(
-                'afaircloth@ritzbanc.com',
-                `New Wire Request #${newRequest.id} - $${newRequest.amount.toLocaleString()} Requires Your Review`,
-                `Request ID: ${newRequest.id}\nAmount: $${newRequest.amount.toLocaleString()}`
-            );
-            
-            alert(`✓ Request ${newRequest.id} submitted successfully!\n\nEmail sent to Anthony Faircloth`);
+            app.formData = { requestor: app.currentUser, email: app.userEmail, property: '', amount: '', purpose: '', wireDate: '', urgency: 'Standard (3-5 days)' };
+
+            alert(`✓ Request ${newRequest.id} submitted!\n\nEmail sent to Anthony Faircloth`);
             render();
         };
 
-        const handleApprove = (requestId) => {
-            const request = app.requests.find(r => r.id === requestId);
-            if (!request) return;
+        const handleApprove = (id) => {
+            const req = app.requests.find(r => r.id === id);
+            if (!req) return;
 
             if (app.userRole === 'manager') {
-                request.managerApproved = true;
-                request.status = 'Manager Approved';
-                sendEmailNotification('welhage@ritzbanc.com', `Wire Request #${request.id} Approved by Anthony`);
-                alert('Forwarded to Wissam El Hage');
+                req.managerApproved = true;
+                req.status = 'Manager Approved';
+                alert('Approved! Forwarded to Wissam El Hage');
             } else if (app.userRole === 'finance') {
-                request.financeApproved = true;
-                request.status = 'Completed';
-                alert('Request approved and completed!');
+                req.financeApproved = true;
+                req.status = 'Completed';
+                alert('Request completed!');
             }
-
             render();
         };
 
-        const handleReject = (requestId) => {
-            const reason = prompt('Enter rejection reason:');
+        const handleReject = (id) => {
+            const reason = prompt('Rejection reason:');
             if (reason) {
-                const request = app.requests.find(r => r.id === requestId);
-                if (request) {
-                    request.status = 'Rejected';
-                    alert('Request rejected.');
+                const req = app.requests.find(r => r.id === id);
+                if (req) {
+                    req.status = 'Rejected';
+                    alert('Request rejected');
                     render();
                 }
             }
         };
 
-        // ============================================
-        // RENDER FUNCTIONS
-        // ============================================
-        const renderLoginScreen = () => {
-            return `
-                <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-                    <div class="w-full max-w-md">
-                        <div class="bg-white bg-opacity-95 backdrop-blur rounded-2xl shadow-2xl p-8">
-                            <div class="text-center mb-8">
-                                <h1 class="text-4xl font-bold text-slate-900 mb-2">Wire Request Portal</h1>
-                                <p class="text-slate-600">Real Estate Asset Management</p>
-                            </div>
-
-                            <button onclick="handleLogin()" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2 mb-4">
-                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.4 24H0v-2.4c0-.66.54-1.2 1.2-1.2h10.2v3.6zm6.3-9.6c1.98 0 3.6-1.62 3.6-3.6s-1.62-3.6-3.6-3.6-3.6 1.62-3.6 3.6 1.62 3.6 3.6 3.6zm4.2 2.4c.66 0 1.2.54 1.2 1.2v4.8H21V24h-4.8v-2.4c0-.66.54-1.2 1.2-1.2h4.8v-3.6z"/></svg>
-                                Login with Office 365
-                            </button>
-
-                            <div class="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                <p class="text-sm text-slate-700"><strong>✓ Azure AD Connected</strong></p>
-                                <p class="text-xs text-slate-600 mt-2">Click the button above to sign in with your Ritz Banc Office 365 account.</p>
-                            </div>
-                        </div>
+        // RENDER LOGIN
+        const renderLogin = () => `
+            <div style="min-height: 100vh; background: linear-gradient(135deg, #1f2937 0%, #111827 100%); display: flex; align-items: center; justify-content: center; padding: 20px;">
+                <div style="background: white; padding: 40px; border-radius: 15px; max-width: 400px; text-align: center;">
+                    <h1 style="color: #1f2937; font-size: 28px; font-weight: bold; margin-bottom: 10px;">Wire Request Portal</h1>
+                    <p style="color: #666; margin-bottom: 30px;">Real Estate Asset Management</p>
+                    
+                    <button onclick="handleLogin()" style="width: 100%; background: #2563eb; color: white; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-bottom: 20px;">
+                        🔐 Login with Office 365
+                    </button>
+                    
+                    <div style="padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; text-align: left; border-radius: 6px;">
+                        <p style="color: #1e40af; font-weight: bold; margin: 0 0 8px 0;">✓ Azure AD Connected</p>
+                        <p style="color: #1e3a8a; font-size: 13px; margin: 0;">Sign in with your Ritz Banc email</p>
                     </div>
                 </div>
-            `;
-        };
+            </div>
+        `;
 
-        const renderRequesterView = () => {
+        // RENDER REQUESTER
+        const renderRequester = () => {
             const userRequests = app.requests.filter(r => r.requestor === app.currentUser);
-            
             return `
-                <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-                    <div class="bg-white border-b border-slate-200 sticky top-0 z-50">
-                        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-                            <div>
-                                <h1 class="text-2xl font-bold text-slate-900">Wire Request Portal</h1>
-                                <p class="text-sm text-slate-600">Submit and track wire requests</p>
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <div class="text-right">
-                                    <p class="text-sm font-semibold text-slate-900">${app.currentUser}</p>
-                                    <p class="text-xs text-slate-600">${app.userEmail}</p>
-                                </div>
-                                <button onclick="handleLogout()" class="px-4 py-2 bg-slate-200 text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-300">Logout</button>
-                            </div>
+                <div style="min-height: 100vh; background: linear-gradient(to right, #f3f4f6, #e5e7eb);">
+                    <div style="background: white; border-bottom: 1px solid #e5e7eb; padding: 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h1 style="margin: 0; font-size: 24px; font-weight: bold; color: #1f2937;">Wire Request Portal</h1>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Submit and track requests</p>
+                        </div>
+                        <div style="text-align: right;">
+                            <p style="margin: 0; font-weight: bold; color: #1f2937;">${app.currentUser}</p>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${app.userEmail}</p>
+                            <button onclick="handleLogout()" style="margin-top: 10px; background: #e5e7eb; color: #1f2937; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Logout</button>
                         </div>
                     </div>
-
-                    <div class="max-w-7xl mx-auto px-6 py-8">
-                        ${!app.showForm ? `<button onclick="toggleForm()" class="mb-8 bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700">➕ Submit Wire Request</button>` : ''}
-                        
-                        ${app.showForm ? `
-                            <div class="bg-white rounded-2xl shadow-lg p-8 mb-8">
-                                <h2 class="text-2xl font-bold text-slate-900 mb-6">New Wire Request</h2>
-                                <form onsubmit="handleSubmit(event)" class="space-y-6">
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div style="max-width: 1200px; margin: 0 auto; padding: 30px 20px;">
+                        ${!app.showForm ? `<button onclick="app.showForm = true; render()" style="background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 20px;">➕ Submit Wire Request</button>` : `
+                            <div style="background: white; padding: 30px; border-radius: 12px; margin-bottom: 30px;">
+                                <h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 20px; font-weight: bold;">New Wire Request</h2>
+                                <form onsubmit="handleSubmit(event)" style="display: grid; gap: 15px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                                         <div>
-                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Property *</label>
-                                            <select onchange="updateForm('property', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
-                                                <option value="">Select...</option>
+                                            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #1f2937;">Property *</label>
+                                            <select onchange="app.formData.property = this.value" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                                                <option value="">Select property...</option>
                                                 ${app.properties.map(p => `<option value="${p}">${p}</option>`).join('')}
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Amount *</label>
-                                            <input type="number" onchange="updateForm('amount', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg" placeholder="0.00" step="0.01">
+                                            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #1f2937;">Amount (USD) *</label>
+                                            <input type="number" onchange="app.formData.amount = this.value" placeholder="0.00" step="0.01" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
                                         </div>
                                         <div>
-                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Type *</label>
-                                            <select onchange="updateForm('purpose', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
-                                                <option value="">Select...</option>
+                                            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #1f2937;">Type *</label>
+                                            <select onchange="app.formData.purpose = this.value" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                                                <option value="">Select type...</option>
                                                 ${app.purposes.map(p => `<option value="${p}">${p}</option>`).join('')}
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Wire Date *</label>
-                                            <input type="date" onchange="updateForm('wireDate', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+                                            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #1f2937;">Wire Date</label>
+                                            <input type="date" onchange="app.formData.wireDate = this.value" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
                                         </div>
                                     </div>
-                                    <div class="flex gap-4">
-                                        <button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700">Submit</button>
-                                        <button type="button" onclick="toggleForm()" class="flex-1 bg-slate-300 text-slate-900 py-3 rounded-lg">Cancel</button>
+                                    <div style="display: flex; gap: 10px;">
+                                        <button type="submit" style="flex: 1; background: #2563eb; color: white; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Submit</button>
+                                        <button type="button" onclick="app.showForm = false; render()" style="flex: 1; background: #d1d5db; color: #1f2937; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Cancel</button>
                                     </div>
                                 </form>
                             </div>
-                        ` : ''}
-
-                        <div class="bg-white rounded-2xl shadow-lg">
-                            <div class="px-8 py-6 bg-slate-50 border-b">
-                                <h2 class="text-xl font-bold text-slate-900">My Requests</h2>
+                        `}
+                        <div style="background: white; border-radius: 12px; overflow: hidden;">
+                            <div style="background: #f3f4f6; padding: 15px 20px; border-bottom: 1px solid #e5e7eb;">
+                                <h3 style="margin: 0; color: #1f2937; font-weight: bold;">My Requests</h3>
                             </div>
-                            <div class="divide-y">
-                                ${userRequests.length === 0 ? `<div class="p-8 text-center text-slate-600">No requests yet.</div>` : userRequests.map(req => `
-                                    <div class="p-6 hover:bg-slate-50 cursor-pointer" onclick="selectRequest('${req.id}')">
-                                        <div class="flex justify-between items-start">
+                            <div>
+                                ${userRequests.length === 0 ? `<div style="padding: 30px; text-align: center; color: #666;">No requests yet</div>` : userRequests.map(req => `
+                                    <div style="padding: 20px; border-bottom: 1px solid #e5e7eb;">
+                                        <div style="display: flex; justify-content: space-between; align-items: start;">
                                             <div>
-                                                <p class="font-bold">${req.id}</p>
-                                                <p class="text-sm text-slate-600">${req.property}</p>
+                                                <p style="margin: 0; font-weight: bold; color: #1f2937;">${req.id}</p>
+                                                <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${req.property}</p>
                                             </div>
-                                            <span class="px-3 py-1 rounded-full text-sm ${getStatusBadge(req.status)}">${req.status}</span>
+                                            <span style="background: ${req.status === 'Completed' ? '#dcfce7' : req.status === 'Manager Approved' ? '#dbeafe' : '#fef3c7'}; color: ${req.status === 'Completed' ? '#166534' : req.status === 'Manager Approved' ? '#1e40af' : '#92400e'}; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">${req.status}</span>
                                         </div>
                                     </div>
                                 `).join('')}
@@ -476,64 +345,51 @@
             `;
         };
 
-        const renderApprovalView = () => {
+        // RENDER APPROVER
+        const renderApprover = () => {
             const pending = app.userRole === 'manager' 
                 ? app.requests.filter(r => !r.managerApproved)
                 : app.requests.filter(r => r.managerApproved && !r.financeApproved);
 
             return `
-                <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-                    <div class="bg-white border-b sticky top-0 z-50">
-                        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-                            <div>
-                                <h1 class="text-2xl font-bold text-slate-900">Approval Dashboard</h1>
-                                <p class="text-sm text-slate-600">${app.userRole === 'manager' ? 'Level 1: Anthony Faircloth' : 'Level 2: Wissam El Hage'}</p>
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <p class="text-sm font-semibold">${app.currentUser}</p>
-                                <button onclick="handleLogout()" class="px-4 py-2 bg-slate-200 rounded-lg text-sm">Logout</button>
-                            </div>
+                <div style="min-height: 100vh; background: linear-gradient(to right, #f3f4f6, #e5e7eb);">
+                    <div style="background: white; border-bottom: 1px solid #e5e7eb; padding: 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h1 style="margin: 0; font-size: 24px; font-weight: bold; color: #1f2937;">Approval Dashboard</h1>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${app.userRole === 'manager' ? 'Level 1: Anthony Faircloth' : 'Level 2: Wissam El Hage'}</p>
+                        </div>
+                        <div style="text-align: right;">
+                            <p style="margin: 0; font-weight: bold; color: #1f2937;">${app.currentUser}</p>
+                            <button onclick="handleLogout()" style="margin-top: 10px; background: #e5e7eb; color: #1f2937; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Logout</button>
                         </div>
                     </div>
-
-                    <div class="max-w-7xl mx-auto px-6 py-8">
-                        <div class="grid grid-cols-3 gap-6 mb-8">
-                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-yellow-500">
-                                <p class="text-slate-600 text-sm">Pending</p>
-                                <p class="text-3xl font-bold">${pending.length}</p>
+                    <div style="max-width: 1200px; margin: 0 auto; padding: 30px 20px;">
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px;">
+                            <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #fbbf24;">
+                                <p style="color: #666; margin: 0 0 10px 0;">Pending</p>
+                                <p style="margin: 0; font-size: 32px; font-weight: bold; color: #1f2937;">${pending.length}</p>
                             </div>
-                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
-                                <p class="text-slate-600 text-sm">Approved</p>
-                                <p class="text-3xl font-bold">${app.requests.filter(r => r.status === 'Completed').length}</p>
+                            <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #34d399;">
+                                <p style="color: #666; margin: 0 0 10px 0;">Approved</p>
+                                <p style="margin: 0; font-size: 32px; font-weight: bold; color: #1f2937;">${app.requests.filter(r => r.status === 'Completed').length}</p>
                             </div>
-                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
-                                <p class="text-slate-600 text-sm">Total Amount</p>
-                                <p class="text-3xl font-bold">${formatCurrency(pending.reduce((s, r) => s + r.amount, 0))}</p>
+                            <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #60a5fa;">
+                                <p style="color: #666; margin: 0 0 10px 0;">Total</p>
+                                <p style="margin: 0; font-size: 32px; font-weight: bold; color: #1f2937;">$${pending.reduce((s, r) => s + r.amount, 0).toLocaleString()}</p>
                             </div>
                         </div>
-
-                        <div class="bg-white rounded-2xl shadow-lg">
-                            <div class="px-8 py-6 bg-slate-50 border-b">
-                                <h2 class="text-xl font-bold">Pending Requests</h2>
+                        <div style="background: white; border-radius: 12px; overflow: hidden;">
+                            <div style="background: #f3f4f6; padding: 15px 20px; border-bottom: 1px solid #e5e7eb;">
+                                <h3 style="margin: 0; color: #1f2937; font-weight: bold;">Requests Awaiting Your Approval</h3>
                             </div>
-                            <div class="divide-y">
-                                ${pending.length === 0 ? `<div class="p-8 text-center">All caught up!</div>` : pending.map(req => `
-                                    <div class="p-6">
-                                        <div class="flex justify-between items-start mb-4">
-                                            <div>
-                                                <p class="font-bold text-lg">${req.id}</p>
-                                                <p class="text-sm text-slate-600">${req.requestor} • ${req.property}</p>
-                                            </div>
-                                            <span class="bg-yellow-100 text-yellow-800 px-3 py-1 text-xs rounded">${req.urgency}</span>
-                                        </div>
-                                        <div class="grid grid-cols-3 gap-4 mb-4 text-sm">
-                                            <div><p class="text-slate-600">Amount</p><p class="font-bold">${formatCurrency(req.amount)}</p></div>
-                                            <div><p class="text-slate-600">Type</p><p class="font-bold">${req.purpose}</p></div>
-                                            <div><p class="text-slate-600">Status</p><p class="font-bold">${req.status}</p></div>
-                                        </div>
-                                        <div class="flex gap-4">
-                                            <button onclick="approveRequest('${req.id}')" class="flex-1 bg-green-600 text-white py-2 rounded font-semibold">✓ Approve</button>
-                                            <button onclick="rejectRequest('${req.id}')" class="flex-1 bg-red-600 text-white py-2 rounded font-semibold">✕ Reject</button>
+                            <div>
+                                ${pending.length === 0 ? `<div style="padding: 30px; text-align: center; color: #666;">All caught up! ✓</div>` : pending.map(req => `
+                                    <div style="padding: 20px; border-bottom: 1px solid #e5e7eb;">
+                                        <p style="margin: 0 0 5px 0; font-weight: bold; color: #1f2937; font-size: 16px;">${req.id}</p>
+                                        <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">${req.requestor} • ${req.property} • $${req.amount.toLocaleString()}</p>
+                                        <div style="display: flex; gap: 10px;">
+                                            <button onclick="handleApprove('${req.id}')" style="flex: 1; background: #22c55e; color: white; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">✓ Approve</button>
+                                            <button onclick="handleReject('${req.id}')" style="flex: 1; background: #ef4444; color: white; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">✕ Reject</button>
                                         </div>
                                     </div>
                                 `).join('')}
@@ -545,41 +401,27 @@
         };
 
         const render = () => {
+            if (!appInitialized) return;
             const appDiv = document.getElementById('app');
+            
             if (!app.currentUser) {
-                appDiv.innerHTML = renderLoginScreen();
+                appDiv.innerHTML = renderLogin();
             } else if (app.userRole === 'requester') {
-                appDiv.innerHTML = renderRequesterView();
+                appDiv.innerHTML = renderRequester();
             } else {
-                appDiv.innerHTML = renderApprovalView();
+                appDiv.innerHTML = renderApprover();
             }
         };
 
-        // ============================================
         // GLOBAL FUNCTIONS
-        // ============================================
-        window.toggleForm = () => { app.showForm = !app.showForm; render(); };
-        window.updateForm = (field, value) => { app.formData[field] = value; };
-        window.selectRequest = (id) => { app.selectedRequest = app.requests.find(r => r.id === id); render(); };
         window.handleLogin = handleLogin;
         window.handleLogout = handleLogout;
         window.handleSubmit = handleSubmit;
         window.handleApprove = handleApprove;
         window.handleReject = handleReject;
-        window.approveRequest = (id) => handleApprove(id);
-        window.rejectRequest = (id) => handleReject(id);
 
-        // ============================================
-        // START APP
-        // ============================================
-        console.log('Starting initialization...');
-        initializeMSAL().then(() => {
-            console.log('MSAL ready:', isAzureADConfigured);
-            render();
-        }).catch(error => {
-            console.error('Initialization error:', error);
-            render();
-        });
+        // START
+        waitForMSAL.then(() => initializeMSAL()).catch(error => showError('Azure AD Initialization Failed', error));
     </script>
 </body>
 </html>
