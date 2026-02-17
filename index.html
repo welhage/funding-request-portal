@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wire Request Portal - Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        // Data Store
+        const app = {
+            currentUser: null,
+            userRole: null,
+            showForm: false,
+            selectedRequest: null,
+            formErrors: {},
+            formData: {
+                requestor: '',
+                email: '',
+                property: '',
+                amount: '',
+                purpose: '',
+                details: '',
+                wireDate: '',
+                urgency: 'Standard (3-5 days)',
+                costCenter: '',
+                projectCode: ''
+            },
+            requests: [
+                {
+                    id: 'WR-2025-0001',
+                    requestor: 'Sarah Johnson',
+                    property: 'Downtown Office Tower - 350 5th Ave',
+                    amount: 125000,
+                    purpose: 'Operation Funding',
+                    status: 'Completed',
+                    managerApproved: true,
+                    financeApproved: true,
+                    date: '2025-02-10',
+                    urgency: 'Standard (3-5 days)'
+                },
+                {
+                    id: 'WR-2025-0002',
+                    requestor: 'Mike Chen',
+                    property: 'Suburban Mall Complex - 789 Oak Lane',
+                    amount: 45000,
+                    purpose: 'Capex Draw Funding',
+                    status: 'Manager Approved',
+                    managerApproved: true,
+                    financeApproved: false,
+                    date: '2025-02-14',
+                    urgency: 'Expedited (1-2 days)'
+                },
+                {
+                    id: 'WR-2025-0003',
+                    requestor: 'Lisa Martinez',
+                    property: 'Industrial Park - Building C',
+                    amount: 18000,
+                    purpose: 'Operation Funding',
+                    status: 'Pending',
+                    managerApproved: false,
+                    financeApproved: false,
+                    date: '2025-02-15',
+                    urgency: 'Standard (3-5 days)'
+                }
+            ],
+            properties: [
+                'Downtown Office Tower - 350 5th Ave',
+                'Suburban Mall Complex - 789 Oak Lane',
+                'Industrial Park - Building C',
+                'Waterfront Residential - 200 Harbor View',
+                'Tech Campus - Silicon Valley'
+            ],
+            purposes: ['Operation Funding', 'Capex Draw Funding'],
+            urgencies: ['Standard (3-5 days)', 'Expedited (1-2 days)', 'Same Day']
+        };
+
+        // Utility Functions
+        const formatCurrency = (amount) => {
+            return '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        const getStatusBadge = (status) => {
+            const styles = {
+                'Completed': 'bg-green-100 text-green-800',
+                'Manager Approved': 'bg-blue-100 text-blue-800',
+                'Pending': 'bg-yellow-100 text-yellow-800',
+                'Rejected': 'bg-red-100 text-red-800'
+            };
+            return styles[status] || 'bg-gray-100 text-gray-800';
+        };
+
+        const validateForm = () => {
+            const errors = {};
+            if (!app.formData.requestor.trim()) errors.requestor = 'Name required';
+            if (!app.formData.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) errors.email = 'Valid email required';
+            if (!app.formData.property) errors.property = 'Property required';
+            if (!app.formData.amount || parseFloat(app.formData.amount) <= 0) errors.amount = 'Amount must be greater than 0';
+            if (!app.formData.purpose) errors.purpose = 'Purpose required';
+            if (!app.formData.wireDate) errors.wireDate = 'Wire date required';
+            
+            app.formErrors = errors;
+            return Object.keys(errors).length === 0;
+        };
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            if (!validateForm()) {
+                render();
+                return;
+            }
+
+            const newRequest = {
+                id: `WR-2025-${String(app.requests.length + 1).padStart(4, '0')}`,
+                requestor: app.formData.requestor,
+                property: app.formData.property,
+                amount: parseFloat(app.formData.amount),
+                purpose: app.formData.purpose,
+                status: 'Pending',
+                managerApproved: false,
+                financeApproved: false,
+                date: new Date().toISOString().split('T')[0],
+                urgency: app.formData.urgency
+            };
+
+            app.requests.push(newRequest);
+            app.showForm = false;
+            app.formData = {
+                requestor: '', email: '', property: '', amount: '', purpose: '', details: '', wireDate: '',
+                urgency: 'Standard (3-5 days)', costCenter: '', projectCode: ''
+            };
+            app.formErrors = {};
+            
+            alert(`✓ Request ${newRequest.id} submitted successfully!\n\nStatus: Pending Manager Approval`);
+            render();
+        };
+
+        const handleApprove = (requestId) => {
+            const request = app.requests.find(r => r.id === requestId);
+            if (!request) return;
+
+            if (app.userRole === 'manager') {
+                request.managerApproved = true;
+                request.status = 'Manager Approved';
+            } else if (app.userRole === 'finance') {
+                request.financeApproved = true;
+                request.status = 'Completed';
+            }
+
+            alert('Request approved successfully!');
+            render();
+        };
+
+        const handleReject = (requestId) => {
+            const reason = prompt('Enter rejection reason:');
+            if (reason) {
+                const request = app.requests.find(r => r.id === requestId);
+                if (request) {
+                    request.status = 'Rejected';
+                    alert('Request rejected.');
+                    render();
+                }
+            }
+        };
+
+        // Render Functions
+        const renderLoginScreen = () => {
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+                    <div class="w-full max-w-md">
+                        <div class="bg-white bg-opacity-95 backdrop-blur rounded-2xl shadow-2xl p-8">
+                            <div class="text-center mb-8">
+                                <h1 class="text-4xl font-bold text-slate-900 mb-2">Wire Request Portal</h1>
+                                <p class="text-slate-600">Real Estate Asset Management</p>
+                            </div>
+
+                            <div class="space-y-4">
+                                <button onclick="login('Sarah Johnson', 'requester')" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
+                                    Login as Requestor
+                                </button>
+
+                                <button onclick="login('Anthony Faircloth', 'manager')" class="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
+                                    Login as Anthony Faircloth (Manager)
+                                </button>
+
+                                <button onclick="login('Wissam El Hage', 'finance')" class="w-full bg-gradient-to-r from-amber-600 to-amber-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
+                                    Login as Wissam El Hage (Finance)
+                                </button>
+                            </div>
+
+                            <div class="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                <p class="text-sm text-slate-700">
+                                    <strong>Demo Credentials:</strong> Use any role above to explore the system.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderRequesterView = () => {
+            const userRequests = app.requests.filter(r => r.requestor === app.currentUser);
+            
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+                    <!-- Header -->
+                    <div class="bg-white border-b border-slate-200 sticky top-0 z-50">
+                        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+                            <div>
+                                <h1 class="text-2xl font-bold text-slate-900">Wire Request Portal</h1>
+                                <p class="text-sm text-slate-600">Submit and track your wire requests</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <div class="text-right">
+                                    <p class="text-sm font-semibold text-slate-900">${app.currentUser}</p>
+                                    <p class="text-xs text-slate-600">Requestor</p>
+                                </div>
+                                <button onclick="logout()" class="p-2 hover:bg-slate-100 rounded-lg transition text-slate-600">
+                                    🚪
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="max-w-7xl mx-auto px-6 py-8">
+                        ${!app.showForm ? `
+                            <button onclick="toggleForm()" class="mb-8 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
+                                ➕ Submit New Wire Request
+                            </button>
+                        ` : ''}
+
+                        ${app.showForm ? renderWireForm() : ''}
+
+                        <!-- Requests List -->
+                        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-200">
+                            <div class="px-8 py-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100">
+                                <h2 class="text-xl font-bold text-slate-900">My Wire Requests</h2>
+                                <p class="text-sm text-slate-600 mt-1">Track the status of your submissions</p>
+                            </div>
+
+                            <div class="divide-y divide-slate-200">
+                                ${userRequests.length === 0 ? `
+                                    <div class="p-8 text-center text-slate-600">
+                                        <p>No requests yet. Submit one to get started.</p>
+                                    </div>
+                                ` : userRequests.map(req => `
+                                    <div class="p-6 hover:bg-slate-50 transition cursor-pointer" onclick="selectRequest('${req.id}')">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <div>
+                                                <p class="font-bold text-slate-900">${req.id}</p>
+                                                <p class="text-sm text-slate-600 mt-1">${req.property}</p>
+                                            </div>
+                                            <span class="px-3 py-1 rounded-full text-sm font-semibold ${getStatusBadge(req.status)}">
+                                                ${req.status}
+                                            </span>
+                                        </div>
+                                        <div class="grid grid-cols-3 gap-4 text-sm">
+                                            <div>
+                                                <p class="text-slate-600">Amount</p>
+                                                <p class="font-semibold text-slate-900">${formatCurrency(req.amount)}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-slate-600">Purpose</p>
+                                                <p class="font-semibold text-slate-900">${req.purpose}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-slate-600">Date Submitted</p>
+                                                <p class="font-semibold text-slate-900">${new Date(req.date).toLocaleDateString()}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderWireForm = () => {
+            return `
+                <div class="bg-white rounded-2xl shadow-lg p-8 mb-8 border border-slate-200">
+                    <h2 class="text-2xl font-bold text-slate-900 mb-6">New Wire Request</h2>
+                    
+                    <form onsubmit="handleSubmit(event)" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Name -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Your Name *</label>
+                                <input type="text" id="requestor" onchange="updateForm('requestor', this.value)" 
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.requestor ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
+                                    value="${app.formData.requestor}">
+                                ${app.formErrors.requestor ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.requestor}</p>` : ''}
+                            </div>
+
+                            <!-- Email -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Email *</label>
+                                <input type="email" id="email" onchange="updateForm('email', this.value)"
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.email ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
+                                    value="${app.formData.email}">
+                                ${app.formErrors.email ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.email}</p>` : ''}
+                            </div>
+
+                            <!-- Property -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Property/Asset *</label>
+                                <select onchange="updateForm('property', this.value)"
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.property ? 'border-red-500 bg-red-50' : 'border-slate-300'}">
+                                    <option value="">Select property...</option>
+                                    ${app.properties.map(p => `<option value="${p}" ${app.formData.property === p ? 'selected' : ''}>${p}</option>`).join('')}
+                                </select>
+                                ${app.formErrors.property ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.property}</p>` : ''}
+                            </div>
+
+
+
+                            <!-- Amount -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Wire Amount (USD) *</label>
+                                <input type="number" onchange="updateForm('amount', this.value)"
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.amount ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
+                                    value="${app.formData.amount}" placeholder="0.00" step="0.01">
+                                ${app.formErrors.amount ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.amount}</p>` : ''}
+                            </div>
+
+                            <!-- Purpose -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Wire Purpose *</label>
+                                <select onchange="updateForm('purpose', this.value)"
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.purpose ? 'border-red-500 bg-red-50' : 'border-slate-300'}">
+                                    <option value="">Select purpose...</option>
+                                    ${app.purposes.map(p => `<option value="${p}" ${app.formData.purpose === p ? 'selected' : ''}>${p}</option>`).join('')}
+                                </select>
+                                ${app.formErrors.purpose ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.purpose}</p>` : ''}
+                            </div>
+
+                            <!-- Urgency -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Urgency Level</label>
+                                <select onchange="updateForm('urgency', this.value)"
+                                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none">
+                                    ${app.urgencies.map(u => `<option value="${u}" ${app.formData.urgency === u ? 'selected' : ''}>${u}</option>`).join('')}
+                                </select>
+                            </div>
+
+                            <!-- Wire Date -->
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-900 mb-2">Requested Wire Date *</label>
+                                <input type="date" onchange="updateForm('wireDate', this.value)"
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.wireDate ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
+                                    value="${app.formData.wireDate}" min="${new Date().toISOString().split('T')[0]}">
+                                ${app.formErrors.wireDate ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.wireDate}</p>` : ''}
+                            </div>
+                        </div>
+
+                        <!-- Buttons -->
+                        <div class="flex gap-4 pt-4">
+                            <button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+                                Submit Request
+                            </button>
+                            <button type="button" onclick="toggleForm()" class="flex-1 bg-slate-300 text-slate-900 py-3 rounded-lg font-semibold hover:bg-slate-400 transition">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        };
+
+        const renderApprovalView = () => {
+            const pendingRequests = app.userRole === 'manager' 
+                ? app.requests.filter(r => !r.managerApproved)
+                : app.requests.filter(r => r.managerApproved && !r.financeApproved);
+
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+                    <!-- Header -->
+                    <div class="bg-white border-b border-slate-200 sticky top-0 z-50">
+                        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+                            <div>
+                                <h1 class="text-2xl font-bold text-slate-900">Wire Request Approval Dashboard</h1>
+                                <p class="text-sm text-slate-600">${app.userRole === 'manager' ? 'Department Manager' : 'Finance Approver'} View</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <div class="text-right">
+                                    <p class="text-sm font-semibold text-slate-900">${app.currentUser}</p>
+                                    <p class="text-xs text-slate-600">${app.userRole === 'manager' ? 'Approver (Level 1)' : 'Approver (Level 2)'}</p>
+                                </div>
+                                <button onclick="logout()" class="p-2 hover:bg-slate-100 rounded-lg transition text-slate-600">
+                                    🚪
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="max-w-7xl mx-auto px-6 py-8">
+                        <!-- Stats -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-yellow-500">
+                                <p class="text-slate-600 text-sm">Pending Reviews</p>
+                                <p class="text-3xl font-bold text-slate-900">${pendingRequests.length}</p>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+                                <p class="text-slate-600 text-sm">Approved This Month</p>
+                                <p class="text-3xl font-bold text-slate-900">${app.requests.filter(r => r.status === 'Completed').length}</p>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
+                                <p class="text-slate-600 text-sm">Total Pending Amount</p>
+                                <p class="text-3xl font-bold text-slate-900">${formatCurrency(pendingRequests.reduce((sum, r) => sum + r.amount, 0))}</p>
+                            </div>
+                        </div>
+
+                        <!-- Pending Requests -->
+                        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-200 mb-8">
+                            <div class="px-8 py-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100">
+                                <h2 class="text-xl font-bold text-slate-900">Requests Awaiting ${app.userRole === 'manager' ? 'Your' : 'Finance'} Approval</h2>
+                            </div>
+
+                            <div class="divide-y divide-slate-200">
+                                ${pendingRequests.length === 0 ? `
+                                    <div class="p-8 text-center text-slate-600">
+                                        <p class="text-2xl mb-2">✓</p>
+                                        <p>All caught up! No pending requests.</p>
+                                    </div>
+                                ` : pendingRequests.map(req => `
+                                    <div class="p-6 hover:bg-slate-50 transition">
+                                        <div class="flex justify-between items-start mb-4">
+                                            <div>
+                                                <p class="font-bold text-slate-900 text-lg">${req.id}</p>
+                                                <p class="text-sm text-slate-600 mt-1">${req.requestor} • ${req.property}</p>
+                                            </div>
+                                            <span class="text-xs font-semibold bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full">
+                                                ${req.urgency}
+                                            </span>
+                                        </div>
+
+                                        <div class="grid grid-cols-4 gap-4 mb-6 text-sm">
+                                            <div>
+                                                <p class="text-slate-600">Amount</p>
+                                                <p class="font-bold text-slate-900 text-lg">${formatCurrency(req.amount)}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-slate-600">Purpose</p>
+                                                <p class="font-semibold text-slate-900">${req.purpose}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-slate-600">Property</p>
+                                                <p class="font-semibold text-slate-900">${req.property.split(' - ')[0]}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-slate-600">Status</p>
+                                                <span class="text-sm font-semibold ${getStatusBadge(req.status)} px-2 py-1 rounded inline-block">${req.status}</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Action Buttons -->
+                                        <div class="flex gap-4">
+                                            <button onclick="approveRequest('${req.id}')" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-semibold hover:bg-green-700 transition">
+                                                ✓ Approve
+                                            </button>
+                                            <button onclick="rejectRequest('${req.id}')" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-semibold hover:bg-red-700 transition">
+                                                ✕ Reject
+                                            </button>
+                                            <button onclick="selectRequest('${req.id}')" class="flex-1 bg-slate-200 text-slate-900 py-2 rounded-lg font-semibold hover:bg-slate-300 transition">
+                                                👁 Details
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- All Requests -->
+                        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-200">
+                            <div class="px-8 py-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100">
+                                <h2 class="text-xl font-bold text-slate-900">All Requests</h2>
+                            </div>
+
+                            <div class="divide-y divide-slate-200">
+                                ${app.requests.map(req => `
+                                    <div class="p-6 hover:bg-slate-50 transition">
+                                        <div class="flex justify-between items-center">
+                                            <div class="flex-1">
+                                                <p class="font-bold text-slate-900">${req.id} • ${req.requestor}</p>
+                                                <p class="text-sm text-slate-600 mt-1">${req.property.split(' - ')[0]}</p>
+                                            </div>
+                                            <div class="text-right">
+                                                <p class="font-bold text-slate-900">${formatCurrency(req.amount)}</p>
+                                                <span class="text-xs font-semibold mt-1 inline-block px-2 py-1 rounded ${getStatusBadge(req.status)}">
+                                                    ${req.status}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderDetailView = () => {
+            if (!app.selectedRequest) return '';
+
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+                    <!-- Header -->
+                    <div class="bg-white border-b border-slate-200">
+                        <div class="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-slate-900">Request Details</h1>
+                            <button onclick="deselectRequest()" class="px-4 py-2 bg-slate-300 text-slate-900 rounded-lg font-semibold hover:bg-slate-400 transition">
+                                ← Back
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="max-w-4xl mx-auto px-6 py-8">
+                        <div class="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
+                            <!-- Header -->
+                            <div class="flex justify-between items-start mb-8 pb-8 border-b border-slate-200">
+                                <div>
+                                    <h2 class="text-3xl font-bold text-slate-900">${app.selectedRequest.id}</h2>
+                                    <p class="text-slate-600 mt-2">Submitted: ${new Date(app.selectedRequest.date).toLocaleDateString()}</p>
+                                </div>
+                                <span class="px-4 py-2 rounded-lg text-sm font-bold ${getStatusBadge(app.selectedRequest.status)}">
+                                    ${app.selectedRequest.status}
+                                </span>
+                            </div>
+
+                            <!-- Details Grid -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                                <!-- Requestor Info -->
+                                <div>
+                                    <h3 class="text-lg font-bold text-slate-900 mb-4">Requestor Information</h3>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <p class="text-sm text-slate-600">Name</p>
+                                            <p class="font-semibold text-slate-900">${app.selectedRequest.requestor}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm text-slate-600">Property</p>
+                                            <p class="font-semibold text-slate-900">${app.selectedRequest.property}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Wire Details -->
+                                <div>
+                                    <h3 class="text-lg font-bold text-slate-900 mb-4">Wire Details</h3>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <p class="text-sm text-slate-600">Amount</p>
+                                            <p class="font-bold text-slate-900 text-2xl">${formatCurrency(app.selectedRequest.amount)}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm text-slate-600">Purpose</p>
+                                            <p class="font-semibold text-slate-900">${app.selectedRequest.purpose}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Property Details -->
+                                <div>
+                                    <h3 class="text-lg font-bold text-slate-900 mb-4">Request Information</h3>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <p class="text-sm text-slate-600">Property</p>
+                                            <p class="font-semibold text-slate-900">${app.selectedRequest.property}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm text-slate-600">Urgency</p>
+                                            <p class="font-semibold text-slate-900">${app.selectedRequest.urgency}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Approval Status -->
+                                <div>
+                                    <h3 class="text-lg font-bold text-slate-900 mb-4">Approval Status</h3>
+                                    <div class="space-y-3">
+                                        <div class="flex items-center gap-3">
+                                            ${app.selectedRequest.managerApproved ? '✓' : '⏳'}
+                                            <div>
+                                                <p class="text-sm text-slate-600">Manager Review</p>
+                                                <p class="font-semibold text-slate-900">
+                                                    ${app.selectedRequest.managerApproved ? '✓ Approved' : 'Pending'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-3">
+                                            ${app.selectedRequest.financeApproved ? '✓' : '⏳'}
+                                            <div>
+                                                <p class="text-sm text-slate-600">Finance Review</p>
+                                                <p class="font-semibold text-slate-900">
+                                                    ${app.selectedRequest.financeApproved ? '✓ Approved' : 'Pending'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            ${(app.userRole === 'manager' || app.userRole === 'finance') && app.selectedRequest.status === 'Pending' ? `
+                                <div class="flex gap-4 pt-8 border-t border-slate-200">
+                                    <button onclick="approveRequest('${app.selectedRequest.id}')" class="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition">
+                                        Approve Request
+                                    </button>
+                                    <button onclick="rejectRequest('${app.selectedRequest.id}')" class="flex-1 bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition">
+                                        Reject Request
+                                    </button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        // Main Render
+        const render = () => {
+            const appDiv = document.getElementById('app');
+
+            if (!app.currentUser) {
+                appDiv.innerHTML = renderLoginScreen();
+            } else if (app.selectedRequest) {
+                appDiv.innerHTML = renderDetailView();
+            } else if (app.userRole === 'requester') {
+                appDiv.innerHTML = renderRequesterView();
+            } else if (app.userRole === 'manager' || app.userRole === 'finance') {
+                appDiv.innerHTML = renderApprovalView();
+            }
+        };
+
+        // Global Functions
+        window.login = (user, role) => {
+            app.currentUser = user;
+            app.userRole = role;
+            render();
+        };
+
+        window.logout = () => {
+            app.currentUser = null;
+            app.userRole = null;
+            app.showForm = false;
+            app.selectedRequest = null;
+            app.formErrors = {};
+            app.formData = {
+                requestor: '', email: '', property: '', amount: '', purpose: '', details: '', wireDate: '',
+                urgency: 'Standard (3-5 days)', costCenter: '', projectCode: ''
+            };
+            render();
+        };
+
+        window.toggleForm = () => {
+            app.showForm = !app.showForm;
+            render();
+        };
+
+        window.updateForm = (field, value) => {
+            app.formData[field] = value;
+        };
+
+        window.selectRequest = (id) => {
+            app.selectedRequest = app.requests.find(r => r.id === id);
+            render();
+        };
+
+        window.deselectRequest = () => {
+            app.selectedRequest = null;
+            render();
+        };
+
+        window.approveRequest = (id) => {
+            handleApprove(id);
+        };
+
+        window.rejectRequest = (id) => {
+            handleReject(id);
+        };
+
+        // Initial Render
+        render();
+    </script>
+</body>
+</html>
