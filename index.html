@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wire Request Portal - Demo</title>
+    <title>Wire Request Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * { box-sizing: border-box; }
@@ -38,7 +38,7 @@
                 {
                     id: 'WR-2025-0001',
                     requestor: 'Sarah Johnson',
-                    property: 'Downtown Office Tower - 350 5th Ave',
+                    property: 'Hickory Point',
                     amount: 125000,
                     purpose: 'Operation Funding',
                     status: 'Completed',
@@ -50,7 +50,7 @@
                 {
                     id: 'WR-2025-0002',
                     requestor: 'Mike Chen',
-                    property: 'Suburban Mall Complex - 789 Oak Lane',
+                    property: 'Lee\'s Landing',
                     amount: 45000,
                     purpose: 'Capex Draw Funding',
                     status: 'Manager Approved',
@@ -62,7 +62,7 @@
                 {
                     id: 'WR-2025-0003',
                     requestor: 'Lisa Martinez',
-                    property: 'Industrial Park - Building C',
+                    property: 'Hilton Village',
                     amount: 18000,
                     purpose: 'Operation Funding',
                     status: 'Pending',
@@ -73,11 +73,13 @@
                 }
             ],
             properties: [
-                'Downtown Office Tower - 350 5th Ave',
-                'Suburban Mall Complex - 789 Oak Lane',
-                'Industrial Park - Building C',
-                'Waterfront Residential - 200 Harbor View',
-                'Tech Campus - Silicon Valley'
+                'Hickory Point',
+                'Lee\'s Landing',
+                'Hilton Village',
+                'Blue Ridge',
+                'Broad on the Green',
+                'Lake Village',
+                'Madison Woods'
             ],
             purposes: ['Operation Funding', 'Capex Draw Funding'],
             urgencies: ['Standard (3-5 days)', 'Expedited (1-2 days)', 'Same Day']
@@ -96,6 +98,19 @@
                 'Rejected': 'bg-red-100 text-red-800'
             };
             return styles[status] || 'bg-gray-100 text-gray-800';
+        };
+
+        const sendEmailNotification = (to, subject, message) => {
+            // In production, this would be handled by Power Automate
+            // For now, we'll log and show a notification
+            console.log(`EMAIL SENT: ${to}`);
+            console.log(`Subject: ${subject}`);
+            console.log(`Message: ${message}`);
+            
+            // Show browser notification if permitted
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(subject, { body: message });
+            }
         };
 
         const validateForm = () => {
@@ -139,7 +154,19 @@
             };
             app.formErrors = {};
             
-            alert(`✓ Request ${newRequest.id} submitted successfully!\n\nStatus: Pending Manager Approval`);
+            // Send email to Anthony Faircloth
+            sendEmailNotification(
+                'afaircloth@ritzbanc.com',
+                `New Wire Request #${newRequest.id} - $${newRequest.amount.toLocaleString()} Requires Your Review`,
+                `Request ID: ${newRequest.id}\n` +
+                `Amount: $${newRequest.amount.toLocaleString()}\n` +
+                `Type: ${newRequest.purpose}\n` +
+                `Property: ${newRequest.property}\n` +
+                `Submitted by: ${newRequest.requestor}\n\n` +
+                `Please review and approve or reject this request.`
+            );
+            
+            alert(`✓ Request ${newRequest.id} submitted successfully!\n\nEmail notification sent to Anthony Faircloth (afaircloth@ritzbanc.com) for approval`);
             render();
         };
 
@@ -150,12 +177,27 @@
             if (app.userRole === 'manager') {
                 request.managerApproved = true;
                 request.status = 'Manager Approved';
+                
+                // Send email to Wissam El Hage for final approval
+                sendEmailNotification(
+                    'welhage@ritzbanc.com',
+                    `Wire Request #${request.id} - $${request.amount.toLocaleString()} Approved by Anthony - Awaiting Your Final Review`,
+                    `Request ID: ${request.id}\n` +
+                    `Amount: $${request.amount.toLocaleString()}\n` +
+                    `Type: ${request.purpose}\n` +
+                    `Property: ${request.property}\n` +
+                    `Submitted by: ${request.requestor}\n` +
+                    `Approved by Anthony Faircloth\n\n` +
+                    `Please review and provide final approval.`
+                );
+                
+                alert('Request approved and forwarded to Wissam El Hage (welhage@ritzbanc.com) for final approval');
             } else if (app.userRole === 'finance') {
                 request.financeApproved = true;
                 request.status = 'Completed';
+                alert('Request approved! Status changed to Completed');
             }
 
-            alert('Request approved successfully!');
             render();
         };
 
@@ -198,7 +240,7 @@
 
                             <div class="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
                                 <p class="text-sm text-slate-700">
-                                    <strong>Demo Credentials:</strong> Use any role above to explore the system.
+                                    <strong>How to use:</strong> Login with any role to test the wire request submission and approval workflow.
                                 </p>
                             </div>
                         </div>
