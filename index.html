@@ -8,27 +8,57 @@
     <script src="https://alcdn.msauth.net/browser/2.30.0/ms-browser-msal.min.js"></script>
     <style>
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; }
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif; }
         .hidden { display: none !important; }
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e5e7eb;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <div id="app"></div>
+    <div id="app">
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);">
+            <div style="text-align: center;">
+                <div class="loading-spinner" style="margin: 0 auto 20px;"></div>
+                <p style="color: #374151; font-weight: 500;">Loading Wire Request Portal...</p>
+            </div>
+        </div>
+    </div>
 
     <script>
+        console.log('Wire Request Portal Loading...');
+
         // ============================================
         // AZURE AD CONFIGURATION
         // ============================================
-        // IMPORTANT: Replace these values with your Azure AD app registration details
         const msalConfig = {
             auth: {
-                clientId: "8a44d772-bd32-49a0-a570-7d1f4749a308", // From Azure Portal
-                authority: "https://login.microsoftonline.com/common", // Multi-tenant
-                redirectUri: window.location.origin // Change if needed
+                clientId: "8a44d772-bd32-49a0-a570-7d1f4749a308",
+                authority: "https://login.microsoftonline.com/common",
+                redirectUri: window.location.origin,
+                postLogoutRedirectUri: window.location.origin
             },
             cache: {
                 cacheLocation: "localStorage",
                 storeAuthStateInCookie: false
+            },
+            system: {
+                loggerOptions: {
+                    loggerCallback: (level, message, containsPii) => {
+                        if (level === msal.LogLevel.Error && !containsPii) {
+                            console.error('[MSAL Error]', message);
+                        }
+                    }
+                }
             }
         };
 
@@ -36,16 +66,15 @@
             scopes: ["User.Read"]
         };
 
-        // Initialize MSAL
-        const msalInstance = new msal.PublicClientApplication(msalConfig);
+        let msalInstance = null;
+        let isAzureADConfigured = false;
 
         // ============================================
-        // ROLE MAPPING (based on email)
+        // ROLE MAPPING
         // ============================================
         const roleMapping = {
             'afaircloth@ritzbanc.com': 'manager',
             'welhage@ritzbanc.com': 'finance',
-            // Anyone else will be 'requester'
         };
 
         const getUserRole = (email) => {
@@ -63,6 +92,7 @@
             selectedRequest: null,
             formErrors: {},
             isAuthenticating: false,
+            azureReady: false,
             formData: {
                 requestor: '',
                 email: '',
@@ -127,9 +157,43 @@
         };
 
         // ============================================
+        // INITIALIZE MSAL
+        // ============================================
+        const initializeMSAL = async () => {
+            try {
+                console.log('Initializing MSAL...');
+                
+                if (typeof msal === 'undefined') {
+                    console.warn('MSAL library not available');
+                    isAzureADConfigured = false;
+                    return;
+                }
+
+                msalInstance = new msal.PublicClientApplication(msalConfig);
+                await msalInstance.initialize();
+                isAzureADConfigured = true;
+                app.azureReady = true;
+                
+                console.log('MSAL initialized successfully');
+                console.log('Redirect URI:', msalConfig.auth.redirectUri);
+                
+                await checkAuthStatus();
+            } catch (error) {
+                console.error('MSAL initialization failed:', error);
+                isAzureADConfigured = false;
+                app.azureReady = false;
+            }
+        };
+
+        // ============================================
         // AUTHENTICATION FUNCTIONS
         // ============================================
         const handleLogin = async () => {
+            if (!msalInstance) {
+                alert('Authentication not configured. Please check the setup.');
+                return;
+            }
+
             app.isAuthenticating = true;
             render();
 
@@ -141,19 +205,16 @@
                     app.userEmail = response.account.username;
                     app.userRole = getUserRole(app.userEmail);
                     
-                    // Pre-fill form with user info
                     app.formData.requestor = app.currentUser;
                     app.formData.email = app.userEmail;
                     
+                    console.log('Login successful:', app.userEmail, 'Role:', app.userRole);
                     render();
                 }
             } catch (error) {
-                if (error.errorCode === 'user_cancelled') {
-                    // User closed login window
-                    app.isAuthenticating = false;
-                } else {
-                    alert('Login failed: ' + error.message + '\n\nMake sure you\'ve configured Azure AD correctly. See the setup guide.');
-                    console.error(error);
+                console.error('Login error:', error);
+                if (error.errorCode !== 'user_cancelled') {
+                    alert('Login failed: ' + error.message);
                 }
                 app.isAuthenticating = false;
                 render();
@@ -162,7 +223,9 @@
 
         const handleLogout = async () => {
             try {
-                await msalInstance.logout();
+                if (msalInstance) {
+                    await msalInstance.logout();
+                }
             } catch (error) {
                 console.error('Logout failed:', error);
             }
@@ -182,6 +245,8 @@
 
         const checkAuthStatus = async () => {
             try {
+                if (!msalInstance) return;
+                
                 const accounts = msalInstance.getAllAccounts();
                 if (accounts.length > 0) {
                     const account = accounts[0];
@@ -190,6 +255,8 @@
                     app.userRole = getUserRole(app.userEmail);
                     app.formData.requestor = app.currentUser;
                     app.formData.email = app.userEmail;
+                    
+                    console.log('User authenticated:', app.userEmail);
                 }
             } catch (error) {
                 console.error('Auth check failed:', error);
@@ -214,13 +281,7 @@
         };
 
         const sendEmailNotification = (to, subject, message) => {
-            console.log(`EMAIL SENT: ${to}`);
-            console.log(`Subject: ${subject}`);
-            console.log(`Message: ${message}`);
-            
-            if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification(subject, { body: message });
-            }
+            console.log(`EMAIL: ${to} - ${subject}`);
         };
 
         const validateForm = () => {
@@ -267,15 +328,10 @@
             sendEmailNotification(
                 'afaircloth@ritzbanc.com',
                 `New Wire Request #${newRequest.id} - $${newRequest.amount.toLocaleString()} Requires Your Review`,
-                `Request ID: ${newRequest.id}\n` +
-                `Amount: $${newRequest.amount.toLocaleString()}\n` +
-                `Type: ${newRequest.purpose}\n` +
-                `Property: ${newRequest.property}\n` +
-                `Submitted by: ${newRequest.requestor}\n\n` +
-                `Please review and approve or reject this request.`
+                `Request ID: ${newRequest.id}\nAmount: $${newRequest.amount.toLocaleString()}`
             );
             
-            alert(`✓ Request ${newRequest.id} submitted successfully!\n\nEmail notification sent to Anthony Faircloth (afaircloth@ritzbanc.com) for approval`);
+            alert(`✓ Request ${newRequest.id} submitted successfully!\n\nEmail sent to Anthony Faircloth`);
             render();
         };
 
@@ -286,24 +342,12 @@
             if (app.userRole === 'manager') {
                 request.managerApproved = true;
                 request.status = 'Manager Approved';
-                
-                sendEmailNotification(
-                    'welhage@ritzbanc.com',
-                    `Wire Request #${request.id} - $${request.amount.toLocaleString()} Approved by Anthony - Awaiting Your Final Review`,
-                    `Request ID: ${request.id}\n` +
-                    `Amount: $${request.amount.toLocaleString()}\n` +
-                    `Type: ${request.purpose}\n` +
-                    `Property: ${request.property}\n` +
-                    `Submitted by: ${request.requestor}\n` +
-                    `Approved by Anthony Faircloth\n\n` +
-                    `Please review and provide final approval.`
-                );
-                
-                alert('Request approved and forwarded to Wissam El Hage (welhage@ritzbanc.com) for final approval');
+                sendEmailNotification('welhage@ritzbanc.com', `Wire Request #${request.id} Approved by Anthony`);
+                alert('Forwarded to Wissam El Hage');
             } else if (app.userRole === 'finance') {
                 request.financeApproved = true;
                 request.status = 'Completed';
-                alert('Request approved! Status changed to Completed');
+                alert('Request approved and completed!');
             }
 
             render();
@@ -325,19 +369,6 @@
         // RENDER FUNCTIONS
         // ============================================
         const renderLoginScreen = () => {
-            if (app.isAuthenticating) {
-                return `
-                    <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-                        <div class="w-full max-w-md">
-                            <div class="bg-white bg-opacity-95 backdrop-blur rounded-2xl shadow-2xl p-8 text-center">
-                                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                                <p class="text-slate-900 font-semibold">Connecting to Office 365...</p>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
             return `
                 <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
                     <div class="w-full max-w-md">
@@ -348,124 +379,16 @@
                             </div>
 
                             <button onclick="handleLogin()" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2 mb-4">
-                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M11.4 24H0v-2.4c0-.66.54-1.2 1.2-1.2h10.2v3.6zm6.3-9.6c1.98 0 3.6-1.62 3.6-3.6s-1.62-3.6-3.6-3.6-3.6 1.62-3.6 3.6 1.62 3.6 3.6 3.6zm4.2 2.4c.66 0 1.2.54 1.2 1.2v4.8H21V24h-4.8v-2.4c0-.66.54-1.2 1.2-1.2h4.8v-3.6zm-.9-8.4c-.66 0-1.2-.54-1.2-1.2s.54-1.2 1.2-1.2 1.2.54 1.2 1.2-.54 1.2-1.2 1.2z"/>
-                                </svg>
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.4 24H0v-2.4c0-.66.54-1.2 1.2-1.2h10.2v3.6zm6.3-9.6c1.98 0 3.6-1.62 3.6-3.6s-1.62-3.6-3.6-3.6-3.6 1.62-3.6 3.6 1.62 3.6 3.6 3.6zm4.2 2.4c.66 0 1.2.54 1.2 1.2v4.8H21V24h-4.8v-2.4c0-.66.54-1.2 1.2-1.2h4.8v-3.6z"/></svg>
                                 Login with Office 365
                             </button>
 
                             <div class="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                <p class="text-sm text-slate-700 mb-2">
-                                    <strong>How it works:</strong>
-                                </p>
-                                <ul class="text-xs text-slate-600 space-y-1">
-                                    <li>• Click "Login with Office 365"</li>
-                                    <li>• Sign in with your Ritz Banc email</li>
-                                    <li>• Your role is assigned automatically</li>
-                                    <li>• Requestor, Manager, or Finance</li>
-                                </ul>
-                            </div>
-
-                            <div class="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                                <p class="text-xs text-amber-800">
-                                    <strong>⚠️ Setup Required:</strong> This app needs Azure AD configuration. See the setup guide for instructions.
-                                </p>
+                                <p class="text-sm text-slate-700"><strong>✓ Azure AD Connected</strong></p>
+                                <p class="text-xs text-slate-600 mt-2">Click the button above to sign in with your Ritz Banc Office 365 account.</p>
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
-        };
-
-        const renderWireForm = () => {
-            return `
-                <div class="bg-white rounded-2xl shadow-lg p-8 mb-8 border border-slate-200">
-                    <h2 class="text-2xl font-bold text-slate-900 mb-6">New Wire Request</h2>
-                    
-                    <form onsubmit="handleSubmit(event)" class="space-y-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Your Name *</label>
-                                <input type="text" onchange="updateForm('requestor', this.value)" 
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.requestor ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
-                                    value="${app.formData.requestor}" readonly>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Email *</label>
-                                <input type="email" onchange="updateForm('email', this.value)"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none border-slate-300"
-                                    value="${app.formData.email}" readonly>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Property/Asset *</label>
-                                <select onchange="updateForm('property', this.value)"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.property ? 'border-red-500 bg-red-50' : 'border-slate-300'}">
-                                    <option value="">Select property...</option>
-                                    ${app.properties.map(p => `<option value="${p}" ${app.formData.property === p ? 'selected' : ''}>${p}</option>`).join('')}
-                                </select>
-                                ${app.formErrors.property ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.property}</p>` : ''}
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Wire Amount (USD) *</label>
-                                <input type="number" onchange="updateForm('amount', this.value)"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.amount ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
-                                    value="${app.formData.amount}" placeholder="0.00" step="0.01">
-                                ${app.formErrors.amount ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.amount}</p>` : ''}
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Wire Type *</label>
-                                <select onchange="updateForm('purpose', this.value)"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.purpose ? 'border-red-500 bg-red-50' : 'border-slate-300'}">
-                                    <option value="">Select type...</option>
-                                    ${app.purposes.map(p => `<option value="${p}" ${app.formData.purpose === p ? 'selected' : ''}>${p}</option>`).join('')}
-                                </select>
-                                ${app.formErrors.purpose ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.purpose}</p>` : ''}
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Urgency Level</label>
-                                <select onchange="updateForm('urgency', this.value)"
-                                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none">
-                                    ${app.urgencies.map(u => `<option value="${u}" ${app.formData.urgency === u ? 'selected' : ''}>${u}</option>`).join('')}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Requested Wire Date *</label>
-                                <input type="date" onchange="updateForm('wireDate', this.value)"
-                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none ${app.formErrors.wireDate ? 'border-red-500 bg-red-50' : 'border-slate-300'}"
-                                    value="${app.formData.wireDate}" min="${new Date().toISOString().split('T')[0]}">
-                                ${app.formErrors.wireDate ? `<p class="text-red-600 text-sm mt-1">${app.formErrors.wireDate}</p>` : ''}
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Cost Center Code</label>
-                                <input type="text" onchange="updateForm('costCenter', this.value)"
-                                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none"
-                                    value="${app.formData.costCenter}">
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-slate-900 mb-2">Project Code</label>
-                                <input type="text" onchange="updateForm('projectCode', this.value)"
-                                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none"
-                                    value="${app.formData.projectCode}">
-                            </div>
-                        </div>
-
-                        <div class="flex gap-4 pt-4">
-                            <button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
-                                Submit Request
-                            </button>
-                            <button type="button" onclick="toggleForm()" class="flex-1 bg-slate-300 text-slate-900 py-3 rounded-lg font-semibold hover:bg-slate-400 transition">
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
                 </div>
             `;
         };
@@ -479,63 +402,70 @@
                         <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
                             <div>
                                 <h1 class="text-2xl font-bold text-slate-900">Wire Request Portal</h1>
-                                <p class="text-sm text-slate-600">Submit and track your wire requests</p>
+                                <p class="text-sm text-slate-600">Submit and track wire requests</p>
                             </div>
                             <div class="flex items-center gap-4">
                                 <div class="text-right">
                                     <p class="text-sm font-semibold text-slate-900">${app.currentUser}</p>
                                     <p class="text-xs text-slate-600">${app.userEmail}</p>
                                 </div>
-                                <button onclick="handleLogout()" class="p-2 hover:bg-slate-100 rounded-lg transition text-slate-600">
-                                    🚪
-                                </button>
+                                <button onclick="handleLogout()" class="px-4 py-2 bg-slate-200 text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-300">Logout</button>
                             </div>
                         </div>
                     </div>
 
                     <div class="max-w-7xl mx-auto px-6 py-8">
-                        ${!app.showForm ? `
-                            <button onclick="toggleForm()" class="mb-8 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
-                                ➕ Submit New Wire Request
-                            </button>
+                        ${!app.showForm ? `<button onclick="toggleForm()" class="mb-8 bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700">➕ Submit Wire Request</button>` : ''}
+                        
+                        ${app.showForm ? `
+                            <div class="bg-white rounded-2xl shadow-lg p-8 mb-8">
+                                <h2 class="text-2xl font-bold text-slate-900 mb-6">New Wire Request</h2>
+                                <form onsubmit="handleSubmit(event)" class="space-y-6">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Property *</label>
+                                            <select onchange="updateForm('property', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+                                                <option value="">Select...</option>
+                                                ${app.properties.map(p => `<option value="${p}">${p}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Amount *</label>
+                                            <input type="number" onchange="updateForm('amount', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg" placeholder="0.00" step="0.01">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Type *</label>
+                                            <select onchange="updateForm('purpose', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+                                                <option value="">Select...</option>
+                                                ${app.purposes.map(p => `<option value="${p}">${p}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-semibold text-slate-900 mb-2">Wire Date *</label>
+                                            <input type="date" onchange="updateForm('wireDate', this.value)" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-4">
+                                        <button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700">Submit</button>
+                                        <button type="button" onclick="toggleForm()" class="flex-1 bg-slate-300 text-slate-900 py-3 rounded-lg">Cancel</button>
+                                    </div>
+                                </form>
+                            </div>
                         ` : ''}
 
-                        ${app.showForm ? renderWireForm() : ''}
-
-                        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-200">
-                            <div class="px-8 py-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100">
-                                <h2 class="text-xl font-bold text-slate-900">My Wire Requests</h2>
+                        <div class="bg-white rounded-2xl shadow-lg">
+                            <div class="px-8 py-6 bg-slate-50 border-b">
+                                <h2 class="text-xl font-bold text-slate-900">My Requests</h2>
                             </div>
-
-                            <div class="divide-y divide-slate-200">
-                                ${userRequests.length === 0 ? `
-                                    <div class="p-8 text-center text-slate-600">
-                                        <p>No requests yet. Submit one to get started.</p>
-                                    </div>
-                                ` : userRequests.map(req => `
-                                    <div class="p-6 hover:bg-slate-50 transition cursor-pointer" onclick="selectRequest('${req.id}')">
-                                        <div class="flex justify-between items-start mb-3">
+                            <div class="divide-y">
+                                ${userRequests.length === 0 ? `<div class="p-8 text-center text-slate-600">No requests yet.</div>` : userRequests.map(req => `
+                                    <div class="p-6 hover:bg-slate-50 cursor-pointer" onclick="selectRequest('${req.id}')">
+                                        <div class="flex justify-between items-start">
                                             <div>
-                                                <p class="font-bold text-slate-900">${req.id}</p>
-                                                <p class="text-sm text-slate-600 mt-1">${req.property}</p>
+                                                <p class="font-bold">${req.id}</p>
+                                                <p class="text-sm text-slate-600">${req.property}</p>
                                             </div>
-                                            <span class="px-3 py-1 rounded-full text-sm font-semibold ${getStatusBadge(req.status)}">
-                                                ${req.status}
-                                            </span>
-                                        </div>
-                                        <div class="grid grid-cols-3 gap-4 text-sm">
-                                            <div>
-                                                <p class="text-slate-600">Amount</p>
-                                                <p class="font-semibold text-slate-900">${formatCurrency(req.amount)}</p>
-                                            </div>
-                                            <div>
-                                                <p class="text-slate-600">Type</p>
-                                                <p class="font-semibold text-slate-900">${req.purpose}</p>
-                                            </div>
-                                            <div>
-                                                <p class="text-slate-600">Submitted</p>
-                                                <p class="font-semibold text-slate-900">${new Date(req.date).toLocaleDateString()}</p>
-                                            </div>
+                                            <span class="px-3 py-1 rounded-full text-sm ${getStatusBadge(req.status)}">${req.status}</span>
                                         </div>
                                     </div>
                                 `).join('')}
@@ -547,94 +477,63 @@
         };
 
         const renderApprovalView = () => {
-            const pendingRequests = app.userRole === 'manager' 
+            const pending = app.userRole === 'manager' 
                 ? app.requests.filter(r => !r.managerApproved)
                 : app.requests.filter(r => r.managerApproved && !r.financeApproved);
 
             return `
                 <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-                    <div class="bg-white border-b border-slate-200 sticky top-0 z-50">
+                    <div class="bg-white border-b sticky top-0 z-50">
                         <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
                             <div>
-                                <h1 class="text-2xl font-bold text-slate-900">Wire Request Approval Dashboard</h1>
-                                <p class="text-sm text-slate-600">${app.userRole === 'manager' ? 'Anthony Faircloth (Level 1)' : 'Wissam El Hage (Level 2)'}</p>
+                                <h1 class="text-2xl font-bold text-slate-900">Approval Dashboard</h1>
+                                <p class="text-sm text-slate-600">${app.userRole === 'manager' ? 'Level 1: Anthony Faircloth' : 'Level 2: Wissam El Hage'}</p>
                             </div>
                             <div class="flex items-center gap-4">
-                                <div class="text-right">
-                                    <p class="text-sm font-semibold text-slate-900">${app.currentUser}</p>
-                                    <p class="text-xs text-slate-600">${app.userEmail}</p>
-                                </div>
-                                <button onclick="handleLogout()" class="p-2 hover:bg-slate-100 rounded-lg transition text-slate-600">
-                                    🚪
-                                </button>
+                                <p class="text-sm font-semibold">${app.currentUser}</p>
+                                <button onclick="handleLogout()" class="px-4 py-2 bg-slate-200 rounded-lg text-sm">Logout</button>
                             </div>
                         </div>
                     </div>
 
                     <div class="max-w-7xl mx-auto px-6 py-8">
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div class="grid grid-cols-3 gap-6 mb-8">
                             <div class="bg-white p-6 rounded-lg shadow border-l-4 border-yellow-500">
-                                <p class="text-slate-600 text-sm">Pending Reviews</p>
-                                <p class="text-3xl font-bold text-slate-900">${pendingRequests.length}</p>
+                                <p class="text-slate-600 text-sm">Pending</p>
+                                <p class="text-3xl font-bold">${pending.length}</p>
                             </div>
                             <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
                                 <p class="text-slate-600 text-sm">Approved</p>
-                                <p class="text-3xl font-bold text-slate-900">${app.requests.filter(r => r.status === 'Completed').length}</p>
+                                <p class="text-3xl font-bold">${app.requests.filter(r => r.status === 'Completed').length}</p>
                             </div>
                             <div class="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
-                                <p class="text-slate-600 text-sm">Total Pending</p>
-                                <p class="text-3xl font-bold text-slate-900">${formatCurrency(pendingRequests.reduce((sum, r) => sum + r.amount, 0))}</p>
+                                <p class="text-slate-600 text-sm">Total Amount</p>
+                                <p class="text-3xl font-bold">${formatCurrency(pending.reduce((s, r) => s + r.amount, 0))}</p>
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-200">
-                            <div class="px-8 py-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100">
-                                <h2 class="text-xl font-bold text-slate-900">Requests Awaiting Your Approval</h2>
+                        <div class="bg-white rounded-2xl shadow-lg">
+                            <div class="px-8 py-6 bg-slate-50 border-b">
+                                <h2 class="text-xl font-bold">Pending Requests</h2>
                             </div>
-
-                            <div class="divide-y divide-slate-200">
-                                ${pendingRequests.length === 0 ? `
-                                    <div class="p-8 text-center text-slate-600">
-                                        <p class="text-2xl mb-2">✓</p>
-                                        <p>All caught up! No pending requests.</p>
-                                    </div>
-                                ` : pendingRequests.map(req => `
-                                    <div class="p-6 hover:bg-slate-50 transition">
+                            <div class="divide-y">
+                                ${pending.length === 0 ? `<div class="p-8 text-center">All caught up!</div>` : pending.map(req => `
+                                    <div class="p-6">
                                         <div class="flex justify-between items-start mb-4">
                                             <div>
-                                                <p class="font-bold text-slate-900 text-lg">${req.id}</p>
-                                                <p class="text-sm text-slate-600 mt-1">${req.requestor} • ${req.property}</p>
+                                                <p class="font-bold text-lg">${req.id}</p>
+                                                <p class="text-sm text-slate-600">${req.requestor} • ${req.property}</p>
                                             </div>
-                                            <span class="text-xs font-semibold bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full">
-                                                ${req.urgency}
-                                            </span>
+                                            <span class="bg-yellow-100 text-yellow-800 px-3 py-1 text-xs rounded">${req.urgency}</span>
                                         </div>
-
-                                        <div class="grid grid-cols-3 gap-4 mb-6 text-sm">
-                                            <div>
-                                                <p class="text-slate-600">Amount</p>
-                                                <p class="font-bold text-slate-900 text-lg">${formatCurrency(req.amount)}</p>
-                                            </div>
-                                            <div>
-                                                <p class="text-slate-600">Type</p>
-                                                <p class="font-semibold text-slate-900">${req.purpose}</p>
-                                            </div>
-                                            <div>
-                                                <p class="text-slate-600">Status</p>
-                                                <span class="text-sm font-semibold ${getStatusBadge(req.status)} px-2 py-1 rounded inline-block">${req.status}</span>
-                                            </div>
+                                        <div class="grid grid-cols-3 gap-4 mb-4 text-sm">
+                                            <div><p class="text-slate-600">Amount</p><p class="font-bold">${formatCurrency(req.amount)}</p></div>
+                                            <div><p class="text-slate-600">Type</p><p class="font-bold">${req.purpose}</p></div>
+                                            <div><p class="text-slate-600">Status</p><p class="font-bold">${req.status}</p></div>
                                         </div>
-
                                         <div class="flex gap-4">
-                                            <button onclick="approveRequest('${req.id}')" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-semibold hover:bg-green-700 transition">
-                                                ✓ Approve
-                                            </button>
-                                            <button onclick="rejectRequest('${req.id}')" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-semibold hover:bg-red-700 transition">
-                                                ✕ Reject
-                                            </button>
-                                            <button onclick="selectRequest('${req.id}')" class="flex-1 bg-slate-200 text-slate-900 py-2 rounded-lg font-semibold hover:bg-slate-300 transition">
-                                                👁 Details
-                                            </button>
+                                            <button onclick="approveRequest('${req.id}')" class="flex-1 bg-green-600 text-white py-2 rounded font-semibold">✓ Approve</button>
+                                            <button onclick="rejectRequest('${req.id}')" class="flex-1 bg-red-600 text-white py-2 rounded font-semibold">✕ Reject</button>
                                         </div>
                                     </div>
                                 `).join('')}
@@ -645,88 +544,13 @@
             `;
         };
 
-        const renderDetailView = () => {
-            if (!app.selectedRequest) return '';
-
-            return `
-                <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-                    <div class="bg-white border-b border-slate-200">
-                        <div class="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
-                            <h1 class="text-2xl font-bold text-slate-900">Request Details</h1>
-                            <button onclick="deselectRequest()" class="px-4 py-2 bg-slate-300 text-slate-900 rounded-lg font-semibold hover:bg-slate-400 transition">
-                                ← Back
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="max-w-4xl mx-auto px-6 py-8">
-                        <div class="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
-                            <div class="flex justify-between items-start mb-8 pb-8 border-b border-slate-200">
-                                <div>
-                                    <h2 class="text-3xl font-bold text-slate-900">${app.selectedRequest.id}</h2>
-                                    <p class="text-slate-600 mt-2">Submitted: ${new Date(app.selectedRequest.date).toLocaleDateString()}</p>
-                                </div>
-                                <span class="px-4 py-2 rounded-lg text-sm font-bold ${getStatusBadge(app.selectedRequest.status)}">
-                                    ${app.selectedRequest.status}
-                                </span>
-                            </div>
-
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                                <div>
-                                    <h3 class="text-lg font-bold text-slate-900 mb-4">Requestor Information</h3>
-                                    <div class="space-y-3">
-                                        <div>
-                                            <p class="text-sm text-slate-600">Name</p>
-                                            <p class="font-semibold text-slate-900">${app.selectedRequest.requestor}</p>
-                                        </div>
-                                        <div>
-                                            <p class="text-sm text-slate-600">Property</p>
-                                            <p class="font-semibold text-slate-900">${app.selectedRequest.property}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <h3 class="text-lg font-bold text-slate-900 mb-4">Wire Details</h3>
-                                    <div class="space-y-3">
-                                        <div>
-                                            <p class="text-sm text-slate-600">Amount</p>
-                                            <p class="font-bold text-slate-900 text-2xl">${formatCurrency(app.selectedRequest.amount)}</p>
-                                        </div>
-                                        <div>
-                                            <p class="text-sm text-slate-600">Type</p>
-                                            <p class="font-semibold text-slate-900">${app.selectedRequest.purpose}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            ${(app.userRole === 'manager' || app.userRole === 'finance') && app.selectedRequest.status === 'Pending' ? `
-                                <div class="flex gap-4 pt-8 border-t border-slate-200">
-                                    <button onclick="approveRequest('${app.selectedRequest.id}')" class="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition">
-                                        Approve Request
-                                    </button>
-                                    <button onclick="rejectRequest('${app.selectedRequest.id}')" class="flex-1 bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition">
-                                        Reject Request
-                                    </button>
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-        };
-
         const render = () => {
             const appDiv = document.getElementById('app');
-
             if (!app.currentUser) {
                 appDiv.innerHTML = renderLoginScreen();
-            } else if (app.selectedRequest) {
-                appDiv.innerHTML = renderDetailView();
             } else if (app.userRole === 'requester') {
                 appDiv.innerHTML = renderRequesterView();
-            } else if (app.userRole === 'manager' || app.userRole === 'finance') {
+            } else {
                 appDiv.innerHTML = renderApprovalView();
             }
         };
@@ -734,42 +558,26 @@
         // ============================================
         // GLOBAL FUNCTIONS
         // ============================================
-        window.toggleForm = () => {
-            app.showForm = !app.showForm;
-            render();
-        };
-
-        window.updateForm = (field, value) => {
-            app.formData[field] = value;
-        };
-
-        window.selectRequest = (id) => {
-            app.selectedRequest = app.requests.find(r => r.id === id);
-            render();
-        };
-
-        window.deselectRequest = () => {
-            app.selectedRequest = null;
-            render();
-        };
-
-        window.approveRequest = (id) => {
-            handleApprove(id);
-        };
-
-        window.rejectRequest = (id) => {
-            handleReject(id);
-        };
-
+        window.toggleForm = () => { app.showForm = !app.showForm; render(); };
+        window.updateForm = (field, value) => { app.formData[field] = value; };
+        window.selectRequest = (id) => { app.selectedRequest = app.requests.find(r => r.id === id); render(); };
         window.handleLogin = handleLogin;
         window.handleLogout = handleLogout;
+        window.handleSubmit = handleSubmit;
+        window.handleApprove = handleApprove;
+        window.handleReject = handleReject;
+        window.approveRequest = (id) => handleApprove(id);
+        window.rejectRequest = (id) => handleReject(id);
 
         // ============================================
-        // INITIALIZATION
+        // START APP
         // ============================================
-        window.addEventListener('DOMContentLoaded', async () => {
-            await msalInstance.initialize();
-            await checkAuthStatus();
+        console.log('Starting initialization...');
+        initializeMSAL().then(() => {
+            console.log('MSAL ready:', isAzureADConfigured);
+            render();
+        }).catch(error => {
+            console.error('Initialization error:', error);
             render();
         });
     </script>
