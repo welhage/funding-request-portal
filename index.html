@@ -63,16 +63,22 @@
 
         // LOGIN - redirect to Azure AD
         const handleLogin = () => {
-            const params = new URLSearchParams({
-                client_id: AZURE_CLIENT_ID,
-                response_type: 'id_token',
-                redirect_uri: REDIRECT_URI,
-                scope: 'openid profile email',
-                response_mode: 'fragment',
-                nonce: Math.random().toString(36).substring(7)
-            });
-
-            window.location.href = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/authorize?${params.toString()}`;
+            try {
+                console.log('=== LOGIN ATTEMPT ===');
+                console.log('Client ID:', AZURE_CLIENT_ID);
+                console.log('Redirect URI:', REDIRECT_URI);
+                console.log('Tenant:', AZURE_TENANT);
+                
+                const authUrl = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/authorize?client_id=${AZURE_CLIENT_ID}&response_type=id_token&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=openid%20profile%20email&response_mode=fragment&nonce=${Math.random().toString(36).substring(7)}`;
+                
+                console.log('Auth URL:', authUrl);
+                console.log('Navigating to Microsoft login...');
+                
+                window.location.href = authUrl;
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login error: ' + error.message);
+            }
         };
 
         // APP STATE
@@ -160,23 +166,27 @@
         };
 
         // RENDER LOGIN
-        const renderLogin = () => `
-            <div style="min-height: 100vh; background: linear-gradient(135deg, #1f2937 0%, #111827 100%); display: flex; align-items: center; justify-content: center; padding: 20px;">
-                <div style="background: white; padding: 40px; border-radius: 15px; max-width: 400px; text-align: center;">
-                    <h1 style="color: #1f2937; font-size: 28px; font-weight: bold; margin-bottom: 10px;">Wire Request Portal</h1>
-                    <p style="color: #666; margin-bottom: 30px;">Real Estate Asset Management</p>
-                    
-                    <button onclick="handleLogin()" style="width: 100%; background: #2563eb; color: white; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-bottom: 20px;">
-                        🔐 Login with Office 365
-                    </button>
-                    
-                    <div style="padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; text-align: left; border-radius: 6px;">
-                        <p style="color: #1e40af; font-weight: bold; margin: 0 0 8px 0;">✓ Azure AD Connected</p>
-                        <p style="color: #1e3a8a; font-size: 13px; margin: 0;">Sign in with your Ritz Banc email (afaircloth@ritzbanc.com or welhage@ritzbanc.com)</p>
+        const renderLogin = () => {
+            const authUrl = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/authorize?client_id=${AZURE_CLIENT_ID}&response_type=id_token&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=openid%20profile%20email&response_mode=fragment&nonce=${Math.random().toString(36).substring(7)}`;
+            
+            return `
+                <div style="min-height: 100vh; background: linear-gradient(135deg, #1f2937 0%, #111827 100%); display: flex; align-items: center; justify-content: center; padding: 20px;">
+                    <div style="background: white; padding: 40px; border-radius: 15px; max-width: 400px; text-align: center;">
+                        <h1 style="color: #1f2937; font-size: 28px; font-weight: bold; margin-bottom: 10px;">Wire Request Portal</h1>
+                        <p style="color: #666; margin-bottom: 30px;">Real Estate Asset Management</p>
+                        
+                        <a href="${authUrl}" style="display: block; width: 100%; background: #2563eb; color: white; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-bottom: 20px; text-decoration: none; border: 1px solid #1e40af; transition: background 0.2s;">
+                            🔐 Login with Office 365
+                        </a>
+                        
+                        <div style="padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; text-align: left; border-radius: 6px;">
+                            <p style="color: #1e40af; font-weight: bold; margin: 0 0 8px 0;">✓ Azure AD Connected</p>
+                            <p style="color: #1e3a8a; font-size: 13px; margin: 0;">Sign in with your Ritz Banc email (afaircloth@ritzbanc.com or welhage@ritzbanc.com)</p>
+                        </div>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
+        };
 
         // RENDER REQUESTER
         const renderRequester = () => {
